@@ -2,7 +2,6 @@
 
 import type { PortfolioSummary } from '@portefeuille/types';
 import clsx from 'clsx';
-import { ResponsiveContainer, AreaChart, Area, Tooltip } from 'recharts';
 
 interface DashboardCardsProps {
   portfolios: PortfolioSummary[];
@@ -20,61 +19,51 @@ const computeGlobalMetrics = (portfolios: PortfolioSummary[]) => {
   return { totalValue, investedValue, gainLoss, gainLossPercentage };
 };
 
-const sampleTrend = (portfolio: PortfolioSummary) => {
-  const assetWithTrend = portfolio.assets.find((asset) => asset.trend && asset.trend.length > 0);
-  return (
-    assetWithTrend?.trend?.slice(-12).map((point) => ({
-      date: point.date,
-      value: point.value,
-    })) ?? []
-  );
+type AggregatedMetrics = {
+  totalValue: number;
+  investedValue: number;
+  gainLoss: number;
+};
+
+const computeCategoryTotals = (portfolios: PortfolioSummary[]) => {
+  return portfolios.reduce<Record<PortfolioSummary['category'], AggregatedMetrics>>((acc, portfolio) => {
+    const aggregate = acc[portfolio.category] ?? {
+      totalValue: 0,
+      investedValue: 0,
+      gainLoss: 0,
+    };
+    aggregate.totalValue += portfolio.totalValue;
+    aggregate.investedValue += portfolio.investedValue;
+    aggregate.gainLoss += portfolio.gainLossValue;
+    acc[portfolio.category] = aggregate;
+    return acc;
+  }, {} as Record<PortfolioSummary['category'], AggregatedMetrics>);
 };
 
 export const DashboardCards = ({ portfolios, onSelect }: DashboardCardsProps) => {
   const { totalValue, gainLoss, gainLossPercentage } = computeGlobalMetrics(portfolios);
+  const categoryTotals = computeCategoryTotals(portfolios);
 
-  const highlight = (category: PortfolioSummary['category']) =>
-    portfolios.find((p) => p.category === category);
+  const firstCrypto = portfolios.find((p) => p.category === 'CRYPTO');
+  const firstPea = portfolios.find((p) => p.category === 'PEA');
+  const firstOther = portfolios.find((p) => p.category === 'OTHER');
 
-  const renderCard = (portfolio: PortfolioSummary | undefined, label: string) => {
-    if (!portfolio) return null;
-    const trend = sampleTrend(portfolio);
-    return (
-      <div className="card" key={portfolio.id} onClick={() => onSelect(portfolio.id)} role="button">
-        <h2>{label}</h2>
-        <div className="value">{formatCurrency(portfolio.totalValue)}</div>
-        <div className={clsx('delta', portfolio.gainLossValue >= 0 ? 'positive' : 'negative')}>
-          {portfolio.gainLossValue >= 0 ? '+' : ''}
-          {formatCurrency(portfolio.gainLossValue)} ({portfolio.gainLossPercentage.toFixed(2)}%)
-        </div>
-        {trend.length > 1 && (
-          <div style={{ height: 80, marginTop: '1rem' }}>
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={trend}>
-                <defs>
-                  <linearGradient id={`gradient-${portfolio.id}`} x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#38bdf8" stopOpacity={0.8} />
-                    <stop offset="95%" stopColor="#38bdf8" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <Area
-                  type="monotone"
-                  dataKey="value"
-                  stroke="#38bdf8"
-                  fillOpacity={1}
-                  fill={`url(#gradient-${portfolio.id})`}
-                />
-                <Tooltip
-                  contentStyle={{ background: '#0f172a', borderRadius: 12, border: '1px solid #1e293b' }}
-                  formatter={(value: number) => formatCurrency(value)}
-                />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-        )}
-      </div>
-    );
-  };
+  const aggregatedCards = (
+    [
+      { category: 'CRYPTO' as const, label: 'Portefeuille Crypto', highlight: firstCrypto },
+      { category: 'PEA' as const, label: 'Portefeuille PEA', highlight: firstPea },
+      { category: 'OTHER' as const, label: 'Autres Portefeuilles', highlight: firstOther },
+    ] satisfies Array<{ category: PortfolioSummary['category']; label: string; highlight?: PortfolioSummary }>
+  )
+    .map(({ category, label, highlight }) => {
+      const totals = categoryTotals[category];
+      if (!totals || totals.totalValue === 0) {
+        return null;
+      }
+      const percentage = totals.investedValue !== 0 ? (totals.gainLoss / totals.investedValue) * 100 : 0;
+      return { category, label, totals, percentage, highlight };
+    })
+    .filter((value): value is NonNullable<typeof value> => value !== null);
 
   return (
     <section className="dashboard-grid" style={{ marginBottom: '2rem' }}>
@@ -86,13 +75,49 @@ export const DashboardCards = ({ portfolios, onSelect }: DashboardCardsProps) =>
           {formatCurrency(gainLoss)} ({gainLossPercentage.toFixed(2)}%)
         </div>
       </div>
-      <div className="card" style={{ gridColumn: 'span 12', display: 'grid', gap: '1rem' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1rem' }}>
-          {renderCard(highlight('CRYPTO'), 'Portefeuille Crypto')}
-          {renderCard(highlight('PEA'), 'Portefeuille PEA')}
-          {renderCard(highlight('OTHER'), 'Autres Portefeuilles')}
+      {aggregatedCards.length > 0 && (
+        <div
+          style={{
+            gridColumn: 'span 12',
+            display: 'grid',
+            gap: '1rem',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
+          }}
+        >
+          {aggregatedCards.map(({ category, label, totals, percentage, highlight }) => (
+            <div
+              key={category}
+              className="card"
+              onClick={() => (highlight ? onSelect(highlight.id) : undefined)}
+              role={highlight ? 'button' : undefined}
+              style={{ cursor: highlight ? 'pointer' : 'default' }}
+            >
+              <h2>{label}</h2>
+              <div className="value">{formatCurrency(totals.totalValue)}</div>
+              <div className={clsx('delta', totals.gainLoss >= 0 ? 'positive' : 'negative')}>
+                {totals.gainLoss >= 0 ? '+' : ''}
+                {formatCurrency(totals.gainLoss)} ({percentage.toFixed(2)}%)
+              </div>
+              {highlight && (
+                <div style={{ color: '#94a3b8', fontSize: '0.8rem', marginTop: '0.5rem' }}>
+                  {highlight.assets.length} actif{highlight.assets.length > 1 ? 's' : ''} suivi
+                </div>
+              )}
+            </div>
+          ))}
         </div>
-      </div>
+      )}
     </section>
   );
 };
+
+
+
+
+
+
+
+
+
+
+

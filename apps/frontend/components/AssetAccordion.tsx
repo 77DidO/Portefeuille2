@@ -3,10 +3,31 @@
 import { useState, useCallback } from 'react';
 import type { AssetSummary, AssetDetail } from '@portefeuille/types';
 import { api } from '@/lib/api';
-import { ResponsiveContainer, AreaChart, Area, Tooltip, XAxis, YAxis, CartesianGrid } from 'recharts';
 
 const formatCurrency = (value: number) =>
   new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(value);
+
+const formatQuantity = (value: number) =>
+  new Intl.NumberFormat('fr-FR', {
+    maximumFractionDigits: value < 1 ? 6 : 2,
+    minimumFractionDigits: 0,
+  }).format(value);
+
+const computeTrendMetrics = (trend: AssetSummary['trend']) => {
+  if (!trend || trend.length < 2) {
+    return null;
+  }
+  const ordered = [...trend].sort(
+    (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
+  );
+  const first = ordered[0].value;
+  const last = ordered[ordered.length - 1].value;
+  const change = last - first;
+  const percent = first !== 0 ? (change / first) * 100 : 0;
+  const status =
+    Math.abs(percent) < 0.1 ? 'flat' : change > 0 ? 'up' : 'down';
+  return { change, percent, status };
+};
 
 interface AssetAccordionProps {
   assets: AssetSummary[];
@@ -46,12 +67,50 @@ export const AssetAccordion = ({ assets }: AssetAccordionProps) => {
       {assets.map((asset) => {
         const isExpanded = expandedId === asset.id;
         const assetDetail = details[asset.id];
+        const trend = computeTrendMetrics(asset.trend);
+        const trendColor =
+          trend?.status === 'up'
+            ? '#34d399'
+            : trend?.status === 'down'
+            ? '#f87171'
+            : '#94a3b8';
+        const trendIcon =
+          trend?.status === 'up'
+            ? '↑'
+            : trend?.status === 'down'
+            ? '↓'
+            : '→';
         return (
           <div key={asset.id}>
             <div className="asset-row" onClick={() => toggleAsset(asset.id)} role="button">
               <div>
                 <div className="symbol">{asset.symbol}</div>
                 <div style={{ fontSize: '0.85rem', color: '#94a3b8' }}>{asset.name}</div>
+                <div style={{ marginTop: '0.35rem', fontSize: '0.8rem', color: '#cbd5f5' }}>
+                  Qté globale&nbsp;: <strong style={{ color: '#e2e8f0' }}>{formatQuantity(asset.quantity)}</strong>
+                </div>
+                {trend ? (
+                  <div
+                    style={{
+                      marginTop: '0.25rem',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '0.3rem',
+                      fontSize: '0.75rem',
+                      color: trendColor,
+                      backgroundColor: 'rgba(148, 163, 184, 0.1)',
+                      borderRadius: '9999px',
+                      padding: '0.2rem 0.6rem',
+                    }}
+                  >
+                    <span>{trendIcon}</span>
+                    <span>{`${Math.abs(trend.percent).toFixed(2)}%`}</span>
+                  </div>
+                ) : (
+                  <div style={{ marginTop: '0.25rem', fontSize: '0.75rem', color: '#94a3b8' }}>
+                    Tendance indisponible
+                  </div>
+                )}
               </div>
               <div style={{ textAlign: 'right' }}>
                 <div className="value">{formatCurrency(asset.marketValue)}</div>
@@ -67,32 +126,6 @@ export const AssetAccordion = ({ assets }: AssetAccordionProps) => {
                 {error[asset.id] && <div className="alert error">{error[asset.id]}</div>}
                 {assetDetail && (
                   <div style={{ display: 'grid', gap: '1.5rem' }}>
-                    <div style={{ height: 220 }}>
-                      <ResponsiveContainer width="100%" height="100%">
-                        <AreaChart data={assetDetail.priceHistory} margin={{ left: 0, right: 0, top: 10, bottom: 0 }}>
-                          <defs>
-                            <linearGradient id={`asset-gradient-${asset.id}`} x1="0" y1="0" x2="0" y2="1">
-                              <stop offset="5%" stopColor="#22d3ee" stopOpacity={0.9} />
-                              <stop offset="95%" stopColor="#22d3ee" stopOpacity={0} />
-                            </linearGradient>
-                          </defs>
-                          <CartesianGrid strokeDasharray="3 3" stroke="rgba(148, 163, 184, 0.15)" />
-                          <XAxis dataKey="date" hide />
-                          <YAxis hide />
-                          <Tooltip
-                            contentStyle={{ background: '#0f172a', borderRadius: 12, border: '1px solid #1e293b' }}
-                            formatter={(value: number) => formatCurrency(value)}
-                          />
-                          <Area
-                            type="monotone"
-                            dataKey="value"
-                            stroke="#22d3ee"
-                            fillOpacity={1}
-                            fill={`url(#asset-gradient-${asset.id})`}
-                          />
-                        </AreaChart>
-                      </ResponsiveContainer>
-                    </div>
                     <div className="table-responsive">
                       <table>
                         <thead>

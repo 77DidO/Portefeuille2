@@ -5,6 +5,7 @@ import portfolioRoutes from './routes/portfolioRoutes.js';
 import assetRoutes from './routes/assetRoutes.js';
 import transactionRoutes from './routes/transactionRoutes.js';
 import importRoutes from './routes/importRoutes.js';
+import systemRoutes from './routes/systemRoutes.js';
 import { ensureGlobalPortfolio } from './services/importService.js';
 
 const app = express();
@@ -22,6 +23,7 @@ app.use('/api/portfolios', portfolioRoutes);
 app.use('/api/assets', assetRoutes);
 app.use('/api/transactions', transactionRoutes);
 app.use('/api/import', importRoutes);
+app.use('/api/system', systemRoutes);
 
 app.use((err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   console.error(err);

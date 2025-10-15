@@ -36,7 +36,13 @@ export const ImportForm = ({ portfolios }: ImportFormProps) => {
       setIsLoading(true);
       const text = await csvFile.text();
       const response = await api.importCsv({ portfolioId, source, csv: text });
-      setStatus(`${response.imported} lignes importées avec succès.`);
+      const imported = response.imported ?? 0;
+      const skipped = response.skipped ?? 0;
+      const fragments = [`${imported} transaction${imported > 1 ? 's' : ''} importee${imported > 1 ? 's' : ''}`];
+      if (skipped > 0) {
+        fragments.push(`${skipped} doublon${skipped > 1 ? 's' : ''} ignore${skipped > 1 ? 's' : ''}`);
+      }
+      setStatus(fragments.join(' - '));
       setError('');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erreur lors de l\'import.');

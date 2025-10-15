@@ -2,7 +2,7 @@ import { prisma } from '../prismaClient.js';
 import { Asset, Portfolio, PricePoint, Transaction } from '@prisma/client';
 import { roundCurrency, toNumber } from '../utils/numbers.js';
 import { PortfolioDetail, PortfolioSummary, AssetSummary, TrendPoint } from '@portefeuille/types';
-import Decimal from 'decimal.js';
+import { Decimal } from 'decimal.js';
 
 interface AssetWithRelations extends Asset {
   transactions: Transaction[];

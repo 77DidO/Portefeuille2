@@ -3,6 +3,8 @@ import type {
   PortfolioDetail,
   ImportRequestBody,
   AssetDetail,
+  PortfolioCreateInput,
+  PortfolioUpdateInput,
 } from '@portefeuille/types';
 import { API_URL } from './config';
 
@@ -30,8 +32,26 @@ export const api = {
   getPortfolio: (id: number) => request<PortfolioDetail>(`/portfolios/${id}`),
   getAsset: (id: number) => request<AssetDetail>(`/assets/${id}`),
   importCsv: (payload: ImportRequestBody) =>
-    request<{ imported: number }>(`/import`, {
+    request<{ imported: number; skipped?: number }>(`/import`, {
       method: 'POST' satisfies HttpMethod,
       body: JSON.stringify(payload),
     }),
+  resetData: () => request<void>(`/system/data`, {
+    method: 'DELETE' satisfies HttpMethod,
+  }),
+  createPortfolio: (payload: PortfolioCreateInput) =>
+    request<PortfolioSummary>(`/portfolios`, {
+      method: 'POST' satisfies HttpMethod,
+      body: JSON.stringify(payload),
+    }),
+  updatePortfolio: (id: number, payload: PortfolioUpdateInput) =>
+    request<PortfolioSummary>(`/portfolios/${id}`, {
+      method: 'PUT' satisfies HttpMethod,
+      body: JSON.stringify(payload),
+    }),
+  deletePortfolio: (id: number) =>
+    request<void>(`/portfolios/${id}`, {
+      method: 'DELETE' satisfies HttpMethod,
+    }),
 };
+
