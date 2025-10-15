@@ -2,6 +2,7 @@ import { prisma } from '../prismaClient.js';
 import { Asset, Portfolio, PricePoint, Transaction } from '@prisma/client';
 import { roundCurrency, toNumber } from '../utils/numbers.js';
 import { PortfolioDetail, PortfolioSummary, AssetSummary, TrendPoint } from '@portefeuille/types';
+import Decimal from 'decimal.js';
 
 interface AssetWithRelations extends Asset {
   transactions: Transaction[];
@@ -20,8 +21,8 @@ const computeAssetSummary = (asset: AssetWithRelations): AssetSummary => {
   const invested = asset.transactions.reduce((acc, tx) => {
     const qty = toNumber(tx.quantity);
     const price = toNumber(tx.price);
-    const fee = toNumber(tx.fee);
-    const delta = price * qty + fee;
+    const fee = toNumber(tx.fee ?? 0);
+    const delta = new Decimal(price).mul(qty).plus(fee).toNumber();
     return tx.type === 'BUY' ? acc + delta : acc - delta;
   }, 0);
   const marketValue = latestPrice ? toNumber(latestPrice.price) * netQuantity : 0;
