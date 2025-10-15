@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { resolve } from 'node:path';
 
 const processes = [];
 
@@ -22,8 +23,10 @@ const run = (cmd, args, cwd) => {
   });
 };
 
-run('npm', ['run', 'dev', '--workspace', 'backend'], process.cwd());
-run('npm', ['run', 'dev', '--workspace', 'frontend'], process.cwd());
+const rootDir = process.cwd();
+
+run('npm', ['run', 'dev'], resolve(rootDir, 'apps/backend'));
+run('npm', ['run', 'dev'], resolve(rootDir, 'apps/frontend'));
 
 process.on('SIGINT', () => {
   processes.forEach((proc) => proc.kill('SIGINT'));
