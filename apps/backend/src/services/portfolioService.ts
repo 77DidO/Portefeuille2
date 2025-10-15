@@ -22,7 +22,7 @@ const computeAssetSummary = (asset: AssetWithRelations): AssetSummary => {
     const qty = toNumber(tx.quantity);
     const price = toNumber(tx.price);
     const fee = toNumber(tx.fee ?? 0);
-    const delta = new Decimal(price).mul(qty).plus(fee).toNumber();
+    const delta = Decimal(price).mul(qty).plus(fee).toNumber();
     return tx.type === 'BUY' ? acc + delta : acc - delta;
   }, 0);
   const marketValue = latestPrice ? toNumber(latestPrice.price) * netQuantity : 0;
