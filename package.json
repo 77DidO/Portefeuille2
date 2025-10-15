@@ -1,0 +1,17 @@
+{
+  "name": "portefeuille2",
+  "private": true,
+  "workspaces": [
+    "apps/backend",
+    "apps/frontend",
+    "packages/types"
+  ],
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "build": "npm run build --workspace @portefeuille/types && npm run build --workspace backend && npm run build --workspace frontend",
+    "lint": "npm run lint --workspace frontend",
+    "format": "node scripts/format.mjs",
+    "postinstall": "npm run build --workspace @portefeuille/types"
+  },
+  "devDependencies": {}
+}
