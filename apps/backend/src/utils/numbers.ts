@@ -1,18 +1,15 @@
-import Decimal from 'decimal.js';
+import DecimalJs from 'decimal.js';
 
-export const toNumber = (value: Decimal.Value | null | undefined): number => {
+export const toNumber = (value: DecimalJs | number | null | undefined): number => {
   if (value === null || value === undefined) {
     return 0;
   }
   if (typeof value === 'number') {
     return value;
   }
-  if (Decimal.isDecimal(value)) {
-    return value.toNumber();
-  }
-  return new Decimal(value).toNumber();
+  return new DecimalJs(value).toNumber();
 };
 
 export const roundCurrency = (value: number, precision = 2): number => {
-  return Number(new Decimal(value).toDecimalPlaces(precision).toNumber());
+  return Number(new DecimalJs(value).toDecimalPlaces(precision).toNumber());
 };
