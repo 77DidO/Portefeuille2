@@ -1,6 +1,7 @@
 import { prisma } from '../prismaClient.js';
 import { AssetDetail, AssetSummary, TransactionDTO, TrendPoint } from '@portefeuille/types';
 import { roundCurrency, toNumber } from '../utils/numbers.js';
+import DecimalJs from 'decimal.js';
 
 export const getAssetDetail = async (id: number): Promise<AssetDetail | null> => {
   const asset = await prisma.asset.findUnique({
@@ -24,8 +25,8 @@ export const getAssetDetail = async (id: number): Promise<AssetDetail | null> =>
   const invested = asset.transactions.reduce((acc, tx) => {
     const qty = toNumber(tx.quantity);
     const price = toNumber(tx.price);
-    const fee = toNumber(tx.fee);
-    const delta = price * qty + fee;
+    const fee = toNumber(tx.fee ?? 0);
+    const delta = new DecimalJs(price).mul(qty).plus(fee).toNumber();
     return tx.type === 'BUY' ? acc + delta : acc - delta;
   }, 0);
   const marketValue = latestPrice ? toNumber(latestPrice.price) * netQuantity : 0;
