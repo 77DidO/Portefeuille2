@@ -1,0 +1,1 @@
+((Get-Content -Raw 'apps/backend/src/services/importService.ts') -replace "const PEA_CASH_SYMBOL = 'PEA_CASH';","const PEA_CASH_SYMBOL = '_PEA_CASH';" -replace "const PEA_CASH_NAME = 'PEA - Liquidit?s';","const PEA_CASH_NAME = 'PEA - Liquidités';") | Set-Content 'apps/backend/src/services/importService.ts'

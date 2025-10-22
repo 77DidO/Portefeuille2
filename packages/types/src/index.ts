@@ -10,6 +10,7 @@ export interface PortfolioSummary {
   investedValue: number;
   gainLossValue: number;
   gainLossPercentage: number;
+  cashValue?: number;
   assets: AssetSummary[];
 }
 
@@ -19,12 +20,31 @@ export interface AssetSummary {
   symbol: string;
   assetType: AssetType;
   latestPrice: number | null;
+  lastPriceUpdateAt: string | null;
   quantity: number;
   marketValue: number;
   investedValue: number;
   gainLossValue: number;
   gainLossPercentage: number;
   trend?: TrendPoint[];
+}
+
+export interface AssetRefreshResult {
+  assetId: number;
+  price: number;
+  priceDate: string;
+  source: string;
+  lastPriceUpdateAt: string;
+}
+
+export interface AssetRefreshFailure {
+  assetId: number;
+  message: string;
+}
+
+export interface RefreshAssetsResponse {
+  refreshed: AssetRefreshResult[];
+  failures: AssetRefreshFailure[];
 }
 
 export interface TrendPoint {
@@ -92,4 +112,28 @@ export interface PricePointDTO {
   price: number;
   date: string;
   source?: string | null;
+}
+
+export interface BackfillPriceHistoryResult {
+  assetId: number;
+  symbol: string;
+  pointsInserted: number;
+}
+
+export interface BackfillPriceHistorySkip {
+  assetId: number;
+  symbol: string;
+  reason: string;
+}
+
+export interface BackfillPriceHistoryError {
+  assetId: number;
+  symbol: string;
+  message: string;
+}
+
+export interface BackfillPriceHistoryResponse {
+  processed: BackfillPriceHistoryResult[];
+  skipped: BackfillPriceHistorySkip[];
+  errors: BackfillPriceHistoryError[];
 }

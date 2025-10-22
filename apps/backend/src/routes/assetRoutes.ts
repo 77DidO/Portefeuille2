@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { createAsset, deleteAsset, getAssetDetail, updateAsset } from '../services/assetService.js';
+import { refreshAllAssetPrices, refreshAssetPrice, backfillPriceHistory } from '../services/priceUpdateService.js';
 import { prisma } from '../prismaClient.js';
 
 const router = Router();
@@ -11,6 +12,12 @@ const assetSchema = z.object({
   name: z.string().min(1),
   assetType: z.enum(['STOCK', 'CRYPTO', 'ETF', 'FUND', 'OTHER']),
 });
+
+const refreshAllSchema = z
+  .object({
+    portfolioId: z.number().int().optional(),
+  })
+  .optional();
 
 router.get('/', async (req, res, next) => {
   try {
@@ -26,6 +33,26 @@ router.get('/', async (req, res, next) => {
       orderBy: { id: 'asc' },
     });
     res.json(assets);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/refresh', async (req, res, next) => {
+  try {
+    const payload = refreshAllSchema?.parse(req.body ?? {});
+    const portfolioId = payload?.portfolioId;
+    const result = await refreshAllAssetPrices(portfolioId);
+    res.json(result);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/backfill-history', async (_req, res, next) => {
+  try {
+    const result = await backfillPriceHistory();
+    res.json(result);
   } catch (error) {
     next(error);
   }
@@ -50,6 +77,16 @@ router.post('/', async (req, res, next) => {
     const payload = assetSchema.parse(req.body);
     const asset = await createAsset(payload);
     res.status(201).json(asset);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/:id/refresh', async (req, res, next) => {
+  try {
+    const id = Number(req.params.id);
+    const result = await refreshAssetPrice(id);
+    res.json(result);
   } catch (error) {
     next(error);
   }

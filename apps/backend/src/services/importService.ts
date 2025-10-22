@@ -2,6 +2,7 @@ import { parse } from 'csv-parse/sync';
 import { prisma } from '../prismaClient.js';
 import type { TransactionType, AssetType, PortfolioCategory } from '@portefeuille/types';
 import { isValid, parseISO } from 'date-fns';
+import { getSpotPriceInEur, refreshAssetPrice } from './priceUpdateService.js';
 
 interface ParsedRow {
   symbol: string;
@@ -12,6 +13,7 @@ interface ParsedRow {
   quantity: number;
   transactionType: TransactionType;
   source: string;
+  fee?: number | null;
 }
 
 const normaliseNumber = (value: string | number | null | undefined): number => {
@@ -110,8 +112,15 @@ const stripPrelude = (csv: string): string => {
   return relevantLines.join('\n');
 };
 
+type CsvParser = (records: CsvRecord[]) => Promise<ParsedRow[]> | ParsedRow[];
+
+const PEA_CASH_SYMBOL = '_PEA_CASH';
+const PEA_CASH_NAME = 'PEA - Liquidités';
+
 const parseCreditAgricole = (records: CsvRecord[]): ParsedRow[] => {
-  return records.map((record) => {
+  const transactions: ParsedRow[] = [];
+
+  records.forEach((record) => {
     const row = normaliseHeaders(record);
     const symbol =
       row['isin'] ||
@@ -130,11 +139,14 @@ const parseCreditAgricole = (records: CsvRecord[]): ParsedRow[] => {
     const price = normaliseNumber(
       row['cours d\'execution'] ||
         row['coursdexecution'] ||
-        row['cours'] ||
-        row['prix'] ||
-        row['prix unitaire'] ||
-        row['prixunitaire'],
+      row['cours'] ||
+      row['prix'] ||
+      row['prix unitaire'] ||
+      row['prixunitaire'],
     );
+    const amountNet = normaliseNumber(row['montant net'] || row['montant'] || row['montantnet']);
+    const feeRaw = normaliseNumber(row['frais']);
+    const fee = feeRaw !== 0 ? Math.abs(feeRaw) : null;
     const dateRaw =
       row['date'] ||
       row['dateoperation'] ||
@@ -148,20 +160,63 @@ const parseCreditAgricole = (records: CsvRecord[]): ParsedRow[] => {
         row['type d operation'] ||
         row['operation'],
     );
-    return {
-      symbol: symbol ?? name ?? 'INCONNU',
-      name: name ?? symbol ?? 'Valeur Credit Agricole',
-      type: 'STOCK',
-      date: dateRaw ? normaliseDate(dateRaw) : new Date(),
-      price,
-      quantity,
-      transactionType,
+
+    const date = dateRaw ? normaliseDate(dateRaw) : new Date();
+
+    const hasAsset = quantity !== 0 && price !== 0 && symbol;
+    if (hasAsset) {
+      transactions.push({
+        symbol: symbol ?? name ?? 'INCONNU',
+        name: name ?? symbol ?? 'Valeur Credit Agricole',
+        type: 'STOCK',
+        date,
+        price,
+        quantity,
+        transactionType,
+        source: 'credit-agricole',
+        fee,
+      });
+    }
+
+    const operation = normaliseText(
+      row['operation'] ||
+        row['typedoperation'] ||
+        row['type'] ||
+        row['type d operation'] ||
+        row['sens'],
+    );
+
+    const cashImpact =
+      amountNet !== 0 ||
+      operation.includes('versement') ||
+      operation.includes('remboursement') ||
+      operation.includes('retrait');
+
+    if (!cashImpact) {
+      return;
+    }
+
+    if (amountNet === 0) {
+      return;
+    }
+
+    const transactionTypeForCash = amountNet > 0 ? 'BUY' : 'SELL';
+    transactions.push({
+      symbol: PEA_CASH_SYMBOL,
+      name: PEA_CASH_NAME,
+      type: 'OTHER',
+      date,
+      price: 1,
+      quantity: Math.abs(amountNet),
+      transactionType: transactionTypeForCash,
       source: 'credit-agricole',
-    };
+    });
   });
+
+  return transactions;
 };
 
-const parseBinance = (records: CsvRecord[]): ParsedRow[] => {
+const parseBinance = async (records: CsvRecord[]): Promise<ParsedRow[]> => {
   type BinanceEvent = {
     index: number;
     timestamp: Date;
@@ -197,19 +252,42 @@ const parseBinance = (records: CsvRecord[]): ParsedRow[] => {
           row['date'],
       );
       return {
-        index,
-        timestamp,
-        amount,
-        coin,
-        operation,
-        originalOperation: operationRaw,
-      };
-    })
-    .filter((event): event is BinanceEvent => Boolean(event))
-    .sort((a, b) => {
-      const diff = a.timestamp.getTime() - b.timestamp.getTime();
-      return diff !== 0 ? diff : a.index - b.index;
-    });
+      index,
+      timestamp,
+      amount,
+      coin,
+      operation,
+      originalOperation: operationRaw,
+    };
+  })
+  .filter((event): event is BinanceEvent => Boolean(event))
+  .sort((a, b) => {
+    const diff = a.timestamp.getTime() - b.timestamp.getTime();
+    return diff !== 0 ? diff : a.index - b.index;
+  });
+
+  const rateCache = new Map<string, number>();
+  const getRate = async (coin: string) => {
+    const normalised = coin.trim().toUpperCase();
+    if (!normalised) {
+      return 0;
+    }
+    if (normalised === 'EUR') {
+      return 1;
+    }
+    const cached = rateCache.get(normalised);
+    if (cached) {
+      return cached;
+    }
+    const { price } = await getSpotPriceInEur(normalised);
+    rateCache.set(normalised, price);
+    return price;
+  };
+
+  const convertToEur = async (coin: string, amount: number) => {
+    const rate = await getRate(coin);
+    return rate * amount;
+  };
 
   const windowMs = 2 * 60 * 1000;
   const pendingSpends: BinanceEvent[] = [];
@@ -235,14 +313,18 @@ const parseBinance = (records: CsvRecord[]): ParsedRow[] => {
     return list.splice(matchIndex, 1)[0];
   };
 
-  const addBuyTransaction = (buyEvent: BinanceEvent, spendEvent: BinanceEvent) => {
+  const addBuyTransaction = async (buyEvent: BinanceEvent, spendEvent: BinanceEvent) => {
     const quantity = buyEvent.amount;
-    const spend = Math.abs(spendEvent.amount);
-    if (quantity <= 0 || spend <= 0) {
+    const spendQuantity = Math.abs(spendEvent.amount);
+    if (quantity <= 0 || spendQuantity <= 0) {
       return;
     }
-    const price = spend / quantity;
-    if (!Number.isFinite(price) || price <= 0) {
+    const spendInEur = await convertToEur(spendEvent.coin, spendQuantity);
+    if (spendInEur <= 0) {
+      return;
+    }
+    const pricePerUnitEur = spendInEur / quantity;
+    if (!Number.isFinite(pricePerUnitEur) || pricePerUnitEur <= 0) {
       return;
     }
     transactions.push({
@@ -250,21 +332,36 @@ const parseBinance = (records: CsvRecord[]): ParsedRow[] => {
       name: buyEvent.coin,
       type: 'CRYPTO',
       date: buyEvent.timestamp,
-      price,
+      price: pricePerUnitEur,
       quantity,
       transactionType: 'BUY',
       source: 'binance',
     });
+    const spendUnitPriceEur = spendInEur / spendQuantity;
+    transactions.push({
+      symbol: spendEvent.coin,
+      name: spendEvent.coin,
+      type: 'CRYPTO',
+      date: spendEvent.timestamp,
+      price: spendUnitPriceEur,
+      quantity: spendQuantity,
+      transactionType: 'SELL',
+      source: 'binance',
+    });
   };
 
-  const addSellTransaction = (sellEvent: BinanceEvent, revenueEvent: BinanceEvent) => {
+  const addSellTransaction = async (sellEvent: BinanceEvent, revenueEvent: BinanceEvent) => {
     const quantity = Math.abs(sellEvent.amount);
-    const revenue = revenueEvent.amount;
-    if (quantity <= 0 || revenue <= 0) {
+    const revenueQuantity = revenueEvent.amount;
+    if (quantity <= 0 || revenueQuantity <= 0) {
       return;
     }
-    const price = revenue / quantity;
-    if (!Number.isFinite(price) || price <= 0) {
+    const revenueInEur = await convertToEur(revenueEvent.coin, revenueQuantity);
+    if (revenueInEur <= 0) {
+      return;
+    }
+    const pricePerUnitEur = revenueInEur / quantity;
+    if (!Number.isFinite(pricePerUnitEur) || pricePerUnitEur <= 0) {
       return;
     }
     transactions.push({
@@ -272,9 +369,20 @@ const parseBinance = (records: CsvRecord[]): ParsedRow[] => {
       name: sellEvent.coin,
       type: 'CRYPTO',
       date: sellEvent.timestamp,
-      price,
+      price: pricePerUnitEur,
       quantity,
       transactionType: 'SELL',
+      source: 'binance',
+    });
+    const revenueUnitPriceEur = revenueInEur / revenueQuantity;
+    transactions.push({
+      symbol: revenueEvent.coin,
+      name: revenueEvent.coin,
+      type: 'CRYPTO',
+      date: revenueEvent.timestamp,
+      price: revenueUnitPriceEur,
+      quantity: revenueQuantity,
+      transactionType: 'BUY',
       source: 'binance',
     });
   };
@@ -294,18 +402,66 @@ const parseBinance = (records: CsvRecord[]): ParsedRow[] => {
     if (isFee) {
       continue;
     }
+
+    const isSimpleDeposit =
+      event.amount > 0 &&
+      op.includes('deposit') &&
+      !op.includes('convert') &&
+      !op.includes('trade') &&
+      !op.includes('buy');
+    if (isSimpleDeposit) {
+      const rate = await getRate(event.coin);
+      if (rate > 0) {
+        transactions.push({
+          symbol: event.coin,
+          name: event.coin,
+          type: 'CRYPTO',
+          date: event.timestamp,
+          price: rate,
+          quantity: event.amount,
+          transactionType: 'BUY',
+          source: 'binance',
+        });
+      }
+      continue;
+    }
+
+    const isSimpleWithdraw =
+      event.amount < 0 &&
+      op.includes('withdraw') &&
+      !op.includes('convert') &&
+      !op.includes('trade') &&
+      !op.includes('sell');
+    if (isSimpleWithdraw) {
+      const quantity = Math.abs(event.amount);
+      const rate = await getRate(event.coin);
+      if (rate > 0) {
+        transactions.push({
+          symbol: event.coin,
+          name: event.coin,
+          type: 'CRYPTO',
+          date: event.timestamp,
+          price: rate,
+          quantity,
+          transactionType: 'SELL',
+          source: 'binance',
+        });
+      }
+      continue;
+    }
+
     const isSell = event.amount < 0 && (op.includes('sold') || op.includes('sell'));
     const isRevenue = event.amount > 0 && op.includes('revenue');
     const isSpend =
       event.amount < 0 &&
-      (op.includes('spend') || op.includes('deposit') || op.includes('convert') || op.includes('withdraw'));
+      (op.includes('spend') || op.includes('convert') || op.includes('trade'));
     const isBuy =
-      event.amount > 0 && (op.includes('buy') || op.includes('convert') || op.includes('earn'));
+      event.amount > 0 && (op.includes('buy') || op.includes('convert') || op.includes('earn') || op.includes('trade'));
 
     if (isSell) {
       const revenueMatch = findMatch(pendingRevenues, event);
       if (revenueMatch) {
-        addSellTransaction(event, revenueMatch);
+        await addSellTransaction(event, revenueMatch);
       } else {
         pendingSells.push(event);
       }
@@ -317,7 +473,7 @@ const parseBinance = (records: CsvRecord[]): ParsedRow[] => {
     if (isRevenue) {
       const sellMatch = findMatch(pendingSells, event);
       if (sellMatch) {
-        addSellTransaction(sellMatch, event);
+        await addSellTransaction(sellMatch, event);
       } else {
         pendingRevenues.push(event);
       }
@@ -329,7 +485,7 @@ const parseBinance = (records: CsvRecord[]): ParsedRow[] => {
     if (isBuy) {
       const spendMatch = findMatch(pendingSpends, event);
       if (spendMatch) {
-        addBuyTransaction(event, spendMatch);
+        await addBuyTransaction(event, spendMatch);
       } else {
         pendingBuys.push(event);
       }
@@ -341,7 +497,7 @@ const parseBinance = (records: CsvRecord[]): ParsedRow[] => {
     if (isSpend) {
       const buyMatch = findMatch(pendingBuys, event);
       if (buyMatch) {
-        addBuyTransaction(buyMatch, event);
+        await addBuyTransaction(buyMatch, event);
       } else {
         pendingSpends.push(event);
       }
@@ -376,7 +532,7 @@ const parseCoinbase = (records: CsvRecord[]): ParsedRow[] => {
   });
 };
 
-const parserBySource: Record<string, (records: CsvRecord[]) => ParsedRow[]> = {
+const parserBySource: Record<string, CsvParser> = {
   'credit-agricole': parseCreditAgricole,
   binance: parseBinance,
   coinbase: parseCoinbase,
@@ -396,7 +552,8 @@ export const importCsv = async (portfolioId: number, source: keyof typeof parser
     relax_column_count: true,
     skip_records_with_error: true,
   }) as CsvRecord[];
-  const rows = parser(records).filter((row) => row.quantity !== 0 && row.price !== 0);
+  const parsedRows = await parser(records);
+  const rows = parsedRows.filter((row) => row.quantity !== 0 && row.price !== 0);
   const portfolio = await prisma.portfolio.findUnique({ where: { id: portfolioId } });
   if (!portfolio) {
     throw new Error('Portefeuille introuvable');
@@ -404,6 +561,7 @@ export const importCsv = async (portfolioId: number, source: keyof typeof parser
 
   let createdCount = 0;
   let skippedCount = 0;
+  const touchedAssetIds = new Set<number>();
 
   for (const row of rows) {
     const asset = await prisma.asset.findFirst({
@@ -425,6 +583,7 @@ export const importCsv = async (portfolioId: number, source: keyof typeof parser
 
     const quantityString = row.quantity.toString();
     const priceString = row.price.toString();
+    const feeString = row.fee !== undefined && row.fee !== null && row.fee !== 0 ? row.fee.toString() : null;
     const existingTransaction = await prisma.transaction.findFirst({
       where: {
         assetId: targetAsset.id,
@@ -433,6 +592,7 @@ export const importCsv = async (portfolioId: number, source: keyof typeof parser
         quantity: quantityString,
         price: priceString,
         source: row.source,
+        fee: feeString ?? undefined,
       },
     });
 
@@ -447,6 +607,7 @@ export const importCsv = async (portfolioId: number, source: keyof typeof parser
           price: priceString,
           date: row.date,
           source: row.source,
+          fee: feeString ?? undefined,
         },
       });
       createdCount += 1;
@@ -470,6 +631,29 @@ export const importCsv = async (portfolioId: number, source: keyof typeof parser
         source: row.source,
       },
     });
+    touchedAssetIds.add(targetAsset.id);
+  }
+
+  if (touchedAssetIds.size > 0) {
+    const now = new Date();
+    const assetIds = Array.from(touchedAssetIds);
+
+    await Promise.all(
+      assetIds.map((assetId) =>
+        prisma.asset.update({
+          where: { id: assetId },
+          data: { lastPriceUpdateAt: now },
+        }),
+      ),
+    );
+
+    for (const assetId of assetIds) {
+      try {
+        await refreshAssetPrice(assetId);
+      } catch {
+        // Ignore refresh errors here; manual refresh remains available.
+      }
+    }
   }
 
   return { imported: createdCount, skipped: skippedCount };
@@ -488,5 +672,7 @@ export const ensureGlobalPortfolio = async () => {
     });
   }
 };
+
+
 
 

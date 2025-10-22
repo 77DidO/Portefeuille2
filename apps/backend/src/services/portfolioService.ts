@@ -14,6 +14,8 @@ const computeAssetSummary = (asset: AssetWithRelations): AssetSummary => {
     (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
   );
   const latestPrice = sortedPrices.at(-1);
+  const latestPriceValue = latestPrice ? toNumber(latestPrice.price) : null;
+
   const netQuantity = asset.transactions.reduce((acc, tx) => {
     const qty = toNumber(tx.quantity);
     return tx.type === 'BUY' ? acc + qty : acc - qty;
@@ -34,23 +36,39 @@ const computeAssetSummary = (asset: AssetWithRelations): AssetSummary => {
     value: toNumber(pp.price),
   }));
 
+  const isCashAsset = asset.symbol?.toUpperCase?.() === 'PEA_CASH' || asset.symbol?.toUpperCase?.() === '_PEA_CASH';
+  const adjustedQuantity = isCashAsset ? Math.max(netQuantity, 0) : netQuantity;
+  const adjustedMarketValue =
+    isCashAsset && latestPriceValue !== null ? Math.max(latestPriceValue * adjustedQuantity, 0) : marketValue;
+  const adjustedInvested = isCashAsset ? adjustedMarketValue : invested;
+  const adjustedGainLoss = adjustedMarketValue - adjustedInvested;
+  const adjustedGainLossPercentage =
+    isCashAsset || adjustedInvested === 0 ? 0 : (adjustedGainLoss / adjustedInvested) * 100;
+
   return {
     id: asset.id,
     name: asset.name,
     symbol: asset.symbol,
     assetType: asset.assetType as AssetSummary['assetType'],
     latestPrice: latestPrice ? toNumber(latestPrice.price) : null,
-    quantity: roundCurrency(netQuantity, 8),
-    marketValue: roundCurrency(marketValue),
-    investedValue: roundCurrency(invested),
-    gainLossValue: roundCurrency(gainLoss),
-    gainLossPercentage: roundCurrency(gainLossPercentage, 2),
+    lastPriceUpdateAt: asset.lastPriceUpdateAt ? asset.lastPriceUpdateAt.toISOString() : null,
+    quantity: roundCurrency(adjustedQuantity, 8),
+    marketValue: roundCurrency(adjustedMarketValue),
+    investedValue: roundCurrency(adjustedInvested),
+    gainLossValue: roundCurrency(adjustedGainLoss),
+    gainLossPercentage: roundCurrency(adjustedGainLossPercentage, 2),
     trend,
   };
 };
 
 const computePortfolioTotals = (portfolio: Portfolio & { assets: AssetWithRelations[] }): PortfolioSummary => {
   const assetSummaries = portfolio.assets.map(computeAssetSummary);
+  const cashValue = assetSummaries
+    .filter((asset) => {
+      const symbol = asset.symbol?.toUpperCase?.() ?? '';
+      return symbol === 'PEA_CASH' || symbol === '_PEA_CASH' || symbol === 'CASH';
+    })
+    .reduce((acc, asset) => acc + asset.marketValue, 0);
   const totalValue = assetSummaries.reduce((acc, asset) => acc + asset.marketValue, 0);
   const investedValue = assetSummaries.reduce((acc, asset) => acc + asset.investedValue, 0);
   const gainLossValue = totalValue - investedValue;
@@ -64,6 +82,7 @@ const computePortfolioTotals = (portfolio: Portfolio & { assets: AssetWithRelati
     investedValue: roundCurrency(investedValue),
     gainLossValue: roundCurrency(gainLossValue),
     gainLossPercentage: roundCurrency(gainLossPercentage, 2),
+    cashValue: roundCurrency(cashValue),
     assets: assetSummaries,
   };
 };
@@ -128,8 +147,12 @@ export const updatePortfolio = (id: number, data: Partial<Portfolio>) => {
   });
 };
 
-export const deletePortfolio = (id: number) => {
-  return prisma.portfolio.delete({
-    where: { id },
+export const deletePortfolio = async (id: number) => {
+  return prisma.$transaction(async (tx) => {
+    // Clean dependent records to satisfy foreign keys.
+    await tx.pricePoint.deleteMany({ where: { asset: { portfolioId: id } } });
+    await tx.transaction.deleteMany({ where: { asset: { portfolioId: id } } });
+    await tx.asset.deleteMany({ where: { portfolioId: id } });
+    return tx.portfolio.delete({ where: { id } });
   });
 };

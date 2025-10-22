@@ -5,6 +5,9 @@ import type {
   AssetDetail,
   PortfolioCreateInput,
   PortfolioUpdateInput,
+  AssetRefreshResult,
+  RefreshAssetsResponse,
+  BackfillPriceHistoryResponse,
 } from '@portefeuille/types';
 import { API_URL } from './config';
 
@@ -35,6 +38,19 @@ export const api = {
     request<{ imported: number; skipped?: number }>(`/import`, {
       method: 'POST' satisfies HttpMethod,
       body: JSON.stringify(payload),
+    }),
+  refreshAssets: (payload?: { portfolioId?: number }) =>
+    request<RefreshAssetsResponse>(`/assets/refresh`, {
+      method: 'POST' satisfies HttpMethod,
+      body: payload ? JSON.stringify(payload) : undefined,
+    }),
+  refreshAsset: (id: number) =>
+    request<AssetRefreshResult>(`/assets/${id}/refresh`, {
+      method: 'POST' satisfies HttpMethod,
+    }),
+  backfillPriceHistory: () =>
+    request<BackfillPriceHistoryResponse>(`/assets/backfill-history`, {
+      method: 'POST' satisfies HttpMethod,
     }),
   resetData: () => request<void>(`/system/data`, {
     method: 'DELETE' satisfies HttpMethod,

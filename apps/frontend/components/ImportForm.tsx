@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import type { PortfolioSummary } from '@portefeuille/types';
 import { api } from '@/lib/api';
 
@@ -8,8 +9,13 @@ interface ImportFormProps {
   portfolios: PortfolioSummary[];
 }
 
+const filterVisiblePortfolios = (items: PortfolioSummary[]) =>
+  items.filter((portfolio) => portfolio.category !== 'GLOBAL');
+
 export const ImportForm = ({ portfolios }: ImportFormProps) => {
-  const [portfolioId, setPortfolioId] = useState<number>(portfolios[0]?.id ?? 0);
+  const visiblePortfolios = filterVisiblePortfolios(portfolios);
+  const queryClient = useQueryClient();
+  const [portfolioId, setPortfolioId] = useState<number>(visiblePortfolios[0]?.id ?? 0);
   const [source, setSource] = useState<'credit-agricole' | 'binance' | 'coinbase'>('credit-agricole');
   const [csvFile, setCsvFile] = useState<File | null>(null);
   const [status, setStatus] = useState<string>('');
@@ -17,14 +23,19 @@ export const ImportForm = ({ portfolios }: ImportFormProps) => {
   const [isLoading, setIsLoading] = useState<boolean>(false);
 
   useEffect(() => {
-    if (portfolios.length > 0) {
-      setPortfolioId(portfolios[0].id);
+    if (visiblePortfolios.length === 0) {
+      setPortfolioId(0);
+      return;
     }
-  }, [portfolios]);
+    setPortfolioId((current) => {
+      const stillExists = visiblePortfolios.some((portfolio) => portfolio.id === current);
+      return stillExists && current !== 0 ? current : visiblePortfolios[0].id;
+    });
+  }, [visiblePortfolios]);
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (portfolios.length === 0) {
+    if (visiblePortfolios.length === 0) {
       setError('Aucun portefeuille disponible. Créez-en un avant d\'importer.');
       return;
     }
@@ -36,6 +47,7 @@ export const ImportForm = ({ portfolios }: ImportFormProps) => {
       setIsLoading(true);
       const text = await csvFile.text();
       const response = await api.importCsv({ portfolioId, source, csv: text });
+      await queryClient.invalidateQueries({ queryKey: ['portfolios'] });
       const imported = response.imported ?? 0;
       const skipped = response.skipped ?? 0;
       const fragments = [`${imported} transaction${imported > 1 ? 's' : ''} importee${imported > 1 ? 's' : ''}`];
@@ -51,7 +63,7 @@ export const ImportForm = ({ portfolios }: ImportFormProps) => {
     }
   };
 
-  const disabled = portfolios.length === 0 || isLoading;
+  const disabled = visiblePortfolios.length === 0 || isLoading;
 
   return (
     <form className="import-form" onSubmit={handleSubmit}>
@@ -65,7 +77,7 @@ export const ImportForm = ({ portfolios }: ImportFormProps) => {
         onChange={(event) => setPortfolioId(Number(event.target.value))}
         disabled={disabled}
       >
-        {portfolios.map((portfolio) => (
+        {visiblePortfolios.map((portfolio) => (
           <option key={portfolio.id} value={portfolio.id}>
             {portfolio.name}
           </option>

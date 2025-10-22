@@ -5,3 +5,7 @@ apps/backend/prisma/dev.db-journal
 .env
 apps/frontend/.env.local
 dist
+tmp/
+*.tmp
+.tmp*.mjs
+tmp*.mjs

@@ -57,6 +57,7 @@ export const getAssetDetail = async (id: number): Promise<AssetDetail | null> =>
     symbol: asset.symbol,
     assetType: asset.assetType as AssetSummary['assetType'],
     latestPrice: latestPrice ? toNumber(latestPrice.price) : null,
+    lastPriceUpdateAt: asset.lastPriceUpdateAt ? asset.lastPriceUpdateAt.toISOString() : null,
     quantity: roundCurrency(netQuantity, 8),
     marketValue: roundCurrency(marketValue),
     investedValue: roundCurrency(invested),

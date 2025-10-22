@@ -23,6 +23,7 @@ model Asset {
   symbol     String
   name       String
   assetType  String
+  lastPriceUpdateAt DateTime?
   createdAt  DateTime   @default(now())
   updatedAt  DateTime   @updatedAt
   transactions Transaction[]

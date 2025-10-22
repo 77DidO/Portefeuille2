@@ -17,6 +17,8 @@ export function SettingsPageContent() {
   const [isResetLoading, setIsResetLoading] = useState(false);
   const [resetStatus, setResetStatus] = useState('');
   const [resetError, setResetError] = useState('');
+  const [backfillStatus, setBackfillStatus] = useState('');
+  const [backfillError, setBackfillError] = useState('');
 
   const [newPortfolioName, setNewPortfolioName] = useState('');
   const [newPortfolioCategory, setNewPortfolioCategory] = useState<PortfolioCategory>('OTHER');
@@ -81,6 +83,33 @@ export function SettingsPageContent() {
     },
   });
 
+  const backfillMutation = useMutation({
+    mutationFn: () => api.backfillPriceHistory(),
+    onSuccess: (result) => {
+      const processedCount = result.processed.length;
+      const insertedPoints = result.processed.reduce((acc, item) => acc + item.pointsInserted, 0);
+      const skippedCount = result.skipped.length;
+      const errorCount = result.errors.length;
+      const fragments: string[] = [];
+      if (processedCount > 0) {
+        fragments.push(`${processedCount} actif${processedCount > 1 ? 's' : ''} reconstruit${processedCount > 1 ? 's' : ''} (${insertedPoints} points)`);
+      }
+      if (skippedCount > 0) {
+        fragments.push(`${skippedCount} actif${skippedCount > 1 ? 's' : ''} ignore${skippedCount > 1 ? 's' : ''}`);
+      }
+      if (errorCount > 0) {
+        fragments.push(`${errorCount} erreur${errorCount > 1 ? 's' : ''}`);
+      }
+      setBackfillStatus(fragments.join(' · ') || 'Aucun changement.');
+      setBackfillError('');
+      invalidatePortfolios();
+    },
+    onError: (err: unknown) => {
+      setBackfillStatus('');
+      setBackfillError(err instanceof Error ? err.message : 'Echec de la reconstruction de l\'historique.');
+    },
+  });
+
   const handleReset = async () => {
     if (!window.confirm('Confirmer la suppression de toutes les donnees ?')) {
       return;
@@ -89,6 +118,8 @@ export function SettingsPageContent() {
       setIsResetLoading(true);
       setResetStatus('');
       setResetError('');
+      setBackfillStatus('');
+      setBackfillError('');
       await api.resetData();
       setResetStatus('Toutes les donnees ont ete supprimees.');
       invalidatePortfolios();
@@ -177,6 +208,24 @@ export function SettingsPageContent() {
           </button>
           {resetStatus && <div className="alert success">{resetStatus}</div>}
           {resetError && <div className="alert error">{resetError}</div>}
+          <hr style={{ border: 'none', borderTop: '1px solid rgba(148, 163, 184, 0.15)', margin: '0.75rem 0 0.5rem' }} />
+          <p style={{ margin: 0, color: '#94a3b8' }}>
+            Reconstruit les historiques de cours a partir de votre premiere date d'achat pour chaque actif (Yahoo Finance pour les titres, Binance pour les cryptos).
+          </p>
+          <button
+            type="button"
+            className="primary"
+            onClick={() => {
+              setBackfillStatus('');
+              setBackfillError('');
+              backfillMutation.mutate();
+            }}
+            disabled={backfillMutation.isPending}
+          >
+            {backfillMutation.isPending ? 'Reconstruction en cours...' : 'Reconstruire l\'historique des cours'}
+          </button>
+          {backfillStatus && <div className="alert success">{backfillStatus}</div>}
+          {backfillError && <div className="alert error">{backfillError}</div>}
         </div>
       </section>
 
@@ -247,9 +296,10 @@ export function SettingsPageContent() {
                     </td>
                   </tr>
                 )}
-                {portfoliosQuery.data?.map((portfolio) => {
+                {(portfoliosQuery.data ?? [])
+                  .filter((portfolio) => portfolio.category !== 'GLOBAL')
+                  .map((portfolio) => {
                   const isEditing = editingId === portfolio.id;
-                  const isGlobal = portfolio.category === 'GLOBAL';
                   return (
                     <tr key={portfolio.id}>
                       <td>
