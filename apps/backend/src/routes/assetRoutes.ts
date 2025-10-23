@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { createAsset, deleteAsset, getAssetDetail, updateAsset } from '../services/assetService.js';
+import { createAsset, deleteAsset, findStaleAssets, getAssetDetail, updateAsset } from '../services/assetService.js';
 import { refreshAllAssetPrices, refreshAssetPrice, backfillPriceHistory } from '../services/priceUpdateService.js';
 import { prisma } from '../prismaClient.js';
 
@@ -22,6 +22,20 @@ const refreshAllSchema = z
 router.get('/', async (req, res, next) => {
   try {
     const portfolioId = req.query.portfolioId ? Number(req.query.portfolioId) : undefined;
+    const staleDaysParam = req.query.staleDays ?? req.query.stale;
+
+    if (staleDaysParam !== undefined) {
+      const parsed = Number(staleDaysParam);
+      if (Number.isNaN(parsed) || parsed < 0) {
+        res.status(400).json({ message: 'Parametre staleDays invalide' });
+        return;
+      }
+      const since = new Date(Date.now() - parsed * 24 * 60 * 60 * 1000);
+      const assets = await findStaleAssets({ portfolioId, since });
+      res.json(assets);
+      return;
+    }
+
     const assets = await prisma.asset.findMany({
       where: {
         portfolioId,

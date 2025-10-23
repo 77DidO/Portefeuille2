@@ -113,6 +113,13 @@ const BINANCE_CONVERSION_CONFIG: Record<
 const binanceConversionCache = new Map<string, { price: number; fetchedAt: number }>();
 const CONVERSION_CACHE_TTL = 1000 * 60;
 
+class YahooSessionRequiredError extends Error {
+  constructor(message = 'Yahoo session required') {
+    super(message);
+    this.name = 'YahooSessionRequiredError';
+  }
+}
+
 interface YahooSession {
   cookie: string;
   crumb?: string;
@@ -283,37 +290,12 @@ const fetchYahooChart = async (symbol: string) => {
   return { price, priceDate };
 };
 
-const fetchYahooHistoricalPrices = async (symbol: string, fromDate: Date) => {
-  const startSeconds = Math.floor(fromDate.getTime() / 1000);
-  const endSeconds = Math.floor(Date.now() / 1000);
-  const session = await ensureYahooSession();
-  const url = new URL(`${YAHOO_CHART_URL}${encodeURIComponent(symbol)}`);
-  url.searchParams.set('interval', '1d');
-  url.searchParams.set('period1', startSeconds.toString());
-  url.searchParams.set('period2', endSeconds.toString());
-  url.searchParams.set('events', 'history');
-  url.searchParams.set('includeAdjustedClose', 'true');
-  if (session?.crumb) {
-    url.searchParams.set('crumb', session.crumb);
-  }
-
-  const response = await fetch(url, {
-    headers: {
-      ...YAHOO_HEADERS,
-      Cookie: session?.cookie ?? '',
-      Referer: `${YAHOO_HOME_URL}/quote/${encodeURIComponent(symbol)}/history`,
-    },
-    cache: 'no-store',
-  });
-  if (!response.ok) {
-    throw new Error(`Yahoo Chart a renvoyé le statut ${response.status}`);
-  }
-  const payload = (await response.json()) as ChartResponse;
+const parseYahooHistoricalSeries = (payload: ChartResponse) => {
   const result = payload.chart?.result?.[0];
   const timestamps = result?.timestamp ?? [];
   const closes = result?.indicators?.quote?.[0]?.close ?? [];
   if (!timestamps.length || !closes.length) {
-    throw new Error('Aucune donnée historique renvoyée par Yahoo');
+    throw new Error('Aucune donnǸe historique renvoyǸe par Yahoo');
   }
   const series: Array<{ date: Date; price: number }> = [];
   timestamps.forEach((ts, index) => {
@@ -328,9 +310,77 @@ const fetchYahooHistoricalPrices = async (symbol: string, fromDate: Date) => {
     series.push({ date: new Date(ts * 1000), price });
   });
   if (series.length === 0) {
-    throw new Error('Données historiques Yahoo vides');
+    throw new Error('DonnǸes historiques Yahoo vides');
   }
   return series;
+};
+
+const createYahooChartUrl = (symbol: string, fromDate: Date) => {
+  const startSeconds = Math.floor(fromDate.getTime() / 1000);
+  const endSeconds = Math.floor(Date.now() / 1000);
+  const url = new URL(`${YAHOO_CHART_URL}${encodeURIComponent(symbol)}`);
+  url.searchParams.set('interval', '1d');
+  url.searchParams.set('period1', startSeconds.toString());
+  url.searchParams.set('period2', endSeconds.toString());
+  url.searchParams.set('events', 'history');
+  url.searchParams.set('includeAdjustedClose', 'true');
+  return url;
+};
+
+const fetchYahooHistoricalSeries = async (
+  symbol: string,
+  fromDate: Date,
+  { useSession }: { useSession: boolean },
+) => {
+  const url = createYahooChartUrl(symbol, fromDate);
+  const headers: Record<string, string> = {
+    ...YAHOO_HEADERS,
+  };
+
+  if (useSession) {
+    const session = await ensureYahooSession();
+    if (!session?.cookie) {
+      throw new Error("Impossible d'initialiser une session Yahoo (cookie manquant).");
+    }
+    headers.Cookie = session.cookie;
+    headers.Referer = `${YAHOO_HOME_URL}/quote/${encodeURIComponent(symbol)}/history`;
+    if (session.crumb) {
+      url.searchParams.set('crumb', session.crumb);
+    }
+  }
+
+  const response = await fetch(url, {
+    headers,
+    cache: 'no-store',
+  });
+
+  if (response.status === 401 || response.status === 403) {
+    if (useSession) {
+      throw new Error(`Yahoo Chart a renvoyǸ le statut ${response.status}`);
+    }
+    throw new YahooSessionRequiredError(`Yahoo Chart a renvoyǸ le statut ${response.status}`);
+  }
+
+  if (!response.ok) {
+    throw new Error(`Yahoo Chart a renvoyǸ le statut ${response.status}`);
+  }
+
+  const payload = (await response.json()) as ChartResponse;
+  return parseYahooHistoricalSeries(payload);
+};
+
+const fetchYahooHistoricalPrices = async (symbol: string, fromDate: Date) => {
+  try {
+    return await fetchYahooHistoricalSeries(symbol, fromDate, { useSession: false });
+  } catch (error) {
+    const shouldRetryWithSession =
+      error instanceof YahooSessionRequiredError ||
+      (error instanceof Error && /session/i.test(error.message));
+    if (!shouldRetryWithSession) {
+      throw error;
+    }
+    return fetchYahooHistoricalSeries(symbol, fromDate, { useSession: true });
+  }
 };
 
 const fetchQuoteForSymbol = async (symbol: string) => {
@@ -547,10 +597,13 @@ export const convertAmountToEur = async (symbol: string, amount: number) => {
   return price * amount;
 };
 
-const buildCandidateSymbols = async (rawSymbol: string) => {
+const buildCandidateSymbols = async (rawSymbol: string, extraQueries: string[] = []) => {
   const trimmed = rawSymbol.trim();
   const upper = trimmed.toUpperCase();
   const staticCandidates: string[] = [trimmed, upper];
+  const additionalSearchTerms = extraQueries
+    .map((term) => term?.trim?.() ?? '')
+    .filter((term) => term.length > 0);
 
   if (isIsin(upper)) {
     const guesses: string[] = [];
@@ -569,12 +622,22 @@ const buildCandidateSymbols = async (rawSymbol: string) => {
     );
   }
 
-  const searchCandidates = await searchYahooSymbols(trimmed);
+  const queries = dedupe([trimmed, ...additionalSearchTerms]);
+  const searchCandidatesResults = await Promise.all(
+    queries.map(async (query) => {
+      try {
+        return await searchYahooSymbols(query);
+      } catch {
+        return [];
+      }
+    }),
+  );
+  const searchCandidates = searchCandidatesResults.flat();
   return dedupe([...staticCandidates, ...searchCandidates]);
 };
 
-const fetchYahooHistoricalForSymbol = async (rawSymbol: string, fromDate: Date) => {
-  const candidates = await buildCandidateSymbols(rawSymbol);
+const fetchYahooHistoricalForSymbol = async (rawSymbol: string, fromDate: Date, extraQueries: string[] = []) => {
+  const candidates = await buildCandidateSymbols(rawSymbol, extraQueries);
   const errors: string[] = [];
 
   for (const candidate of candidates) {
@@ -592,8 +655,8 @@ const fetchYahooHistoricalForSymbol = async (rawSymbol: string, fromDate: Date) 
   throw new Error(errors.length > 0 ? errors.join(' | ') : 'Aucune donnée historique disponible');
 };
 
-const fetchQuote = async (symbol: string) => {
-  const candidates = await buildCandidateSymbols(symbol);
+const fetchQuote = async (symbol: string, extraQueries: string[] = []) => {
+  const candidates = await buildCandidateSymbols(symbol, extraQueries);
   const errors: string[] = [];
 
   for (const candidate of candidates) {
@@ -621,6 +684,7 @@ export const refreshAssetPrice = async (assetId: number) => {
   const errors: string[] = [];
   const assetType = asset.assetType?.toUpperCase();
   const isCrypto = assetType === 'CRYPTO';
+  const extraQueries = [asset.name ?? ''].filter((value) => value.trim().length > 0);
 
   const tryFetch = async () => {
     const staticPrice = getStaticPriceQuote(asset.symbol);
@@ -638,7 +702,7 @@ export const refreshAssetPrice = async (assetId: number) => {
     }
 
     try {
-      const yahooQuote = await fetchQuote(asset.symbol);
+      const yahooQuote = await fetchQuote(asset.symbol, extraQueries);
       return { ...yahooQuote, source: 'yahoo-finance' as const };
     } catch (error) {
       errors.push(error instanceof Error ? error.message : String(error));
@@ -766,7 +830,8 @@ export const backfillPriceHistory = async (): Promise<BackfillPriceHistoryRespon
           continue;
         }
       } else {
-        const { series } = await fetchYahooHistoricalForSymbol(symbol, fromDate);
+        const searchTerms = [asset.name ?? ''].filter((value) => value.trim().length > 0);
+        const { series } = await fetchYahooHistoricalForSymbol(symbol, fromDate, searchTerms);
         history = series;
       }
 
@@ -815,3 +880,4 @@ export const backfillPriceHistory = async (): Promise<BackfillPriceHistoryRespon
     errors,
   };
 };
+

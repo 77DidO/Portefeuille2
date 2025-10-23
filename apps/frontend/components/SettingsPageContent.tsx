@@ -1,9 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { PortfolioCategory, PortfolioSummary } from '@portefeuille/types';
+import type { AssetStaleness, PortfolioCategory, PortfolioSummary } from '@portefeuille/types';
 import { api } from '@/lib/api';
 
 const categoryLabels: Record<PortfolioCategory, string> = {
@@ -19,6 +19,9 @@ export function SettingsPageContent() {
   const [resetError, setResetError] = useState('');
   const [backfillStatus, setBackfillStatus] = useState('');
   const [backfillError, setBackfillError] = useState('');
+  const [staleAssets, setStaleAssets] = useState<AssetStaleness[]>([]);
+  const [staleLoading, setStaleLoading] = useState(false);
+  const [staleAssetsError, setStaleAssetsError] = useState('');
 
   const [newPortfolioName, setNewPortfolioName] = useState('');
   const [newPortfolioCategory, setNewPortfolioCategory] = useState<PortfolioCategory>('OTHER');
@@ -38,6 +41,25 @@ export function SettingsPageContent() {
   const invalidatePortfolios = () => {
     queryClient.invalidateQueries({ queryKey: ['portfolios'] });
   };
+
+  const loadStaleAssets = async () => {
+    try {
+      setStaleLoading(true);
+      setStaleAssetsError('');
+      const assets = await api.getStaleAssets({ staleDays: 1 });
+      setStaleAssets(assets);
+    } catch (err) {
+      setStaleAssetsError(
+        err instanceof Error ? err.message : 'Impossible de charger les actifs non mis à jour.',
+      );
+    } finally {
+      setStaleLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void loadStaleAssets();
+  }, []);
 
   const createPortfolioMutation = useMutation({
     mutationFn: api.createPortfolio,
@@ -103,10 +125,12 @@ export function SettingsPageContent() {
       setBackfillStatus(fragments.join(' · ') || 'Aucun changement.');
       setBackfillError('');
       invalidatePortfolios();
+      void loadStaleAssets();
     },
     onError: (err: unknown) => {
       setBackfillStatus('');
       setBackfillError(err instanceof Error ? err.message : 'Echec de la reconstruction de l\'historique.');
+      void loadStaleAssets();
     },
   });
 
@@ -183,6 +207,13 @@ export function SettingsPageContent() {
     deletePortfolioMutation.mutate(portfolio.id);
   };
 
+  const formatDateTime = (value: string | null) => {
+    if (!value) {
+      return 'Jamais';
+    }
+    return new Date(value).toLocaleString('fr-FR');
+  };
+
   return (
     <main>
       <div className="page-header">
@@ -226,6 +257,40 @@ export function SettingsPageContent() {
           </button>
           {backfillStatus && <div className="alert success">{backfillStatus}</div>}
           {backfillError && <div className="alert error">{backfillError}</div>}
+          <div className="stale-panel">
+            <div className="stale-panel__header">
+              Actifs sans mise à jour récente
+              <span className="stale-panel__count">({staleAssets.length})</span>
+            </div>
+            {staleLoading ? (
+              <div className="stale-panel__message">Analyse en cours...</div>
+            ) : staleAssetsError ? (
+              <div className="alert error" style={{ marginTop: '0.5rem' }}>
+                {staleAssetsError}
+              </div>
+            ) : staleAssets.length === 0 ? (
+              <div className="stale-panel__message">Tous les actifs possèdent un prix mis à jour aujourd&rsquo;hui.</div>
+            ) : (
+              <ul className="stale-panel__list">
+                {staleAssets.map((asset) => (
+                  <li key={asset.id} className="stale-panel__item">
+                    <div>
+                      <div className="stale-panel__asset">
+                        <span className="symbol">{asset.symbol}</span>
+                        <span>{asset.name}</span>
+                      </div>
+                      <div className="stale-panel__meta">
+                        Portefeuille&nbsp;: <strong>{asset.portfolioName}</strong>
+                      </div>
+                    </div>
+                    <div className="stale-panel__meta">
+                      Dernière mise à jour&nbsp;: <strong>{formatDateTime(asset.lastPriceUpdateAt ?? asset.lastPricePointAt)}</strong>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
         </div>
       </section>
 
@@ -342,7 +407,7 @@ export function SettingsPageContent() {
                             <button type="button" className="primary" onClick={() => startEditing(portfolio)}>
                               Modifier
                             </button>
-                            <button type="button" className="danger" onClick={() => handleDeletePortfolio(portfolio)} disabled={deletePortfolioMutation.isPending || isGlobal}>
+                            <button type="button" className="danger" onClick={() => handleDeletePortfolio(portfolio)} disabled={deletePortfolioMutation.isPending}>
                               Supprimer
                             </button>
                           </>

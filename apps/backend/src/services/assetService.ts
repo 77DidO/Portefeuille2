@@ -1,5 +1,5 @@
 import { prisma } from '../prismaClient.js';
-import { AssetDetail, AssetSummary, TransactionDTO, TrendPoint } from '@portefeuille/types';
+import { AssetDetail, AssetSummary, AssetStaleness, TransactionDTO, TrendPoint } from '@portefeuille/types';
 import { roundCurrency, toNumber } from '../utils/numbers.js';
 import { Decimal } from 'decimal.js';
 
@@ -95,4 +95,41 @@ export const deleteAsset = (id: number) => {
   return prisma.asset.delete({
     where: { id },
   });
+};
+
+export const findStaleAssets = async ({
+  portfolioId,
+  since,
+}: {
+  portfolioId?: number;
+  since: Date;
+}): Promise<AssetStaleness[]> => {
+  const assets = await prisma.asset.findMany({
+    where: {
+      ...(portfolioId ? { portfolioId } : {}),
+      OR: [
+        { lastPriceUpdateAt: null },
+        { lastPriceUpdateAt: { lt: since } },
+        { pricePoints: { none: {} } },
+      ],
+    },
+    include: {
+      pricePoints: {
+        orderBy: { date: 'desc' },
+        take: 1,
+      },
+      portfolio: true,
+    },
+    orderBy: [{ portfolio: { name: 'asc' } }, { id: 'asc' }],
+  });
+
+  return assets.map((asset) => ({
+    id: asset.id,
+    portfolioId: asset.portfolioId,
+    portfolioName: asset.portfolio.name,
+    symbol: asset.symbol,
+    name: asset.name,
+    lastPriceUpdateAt: asset.lastPriceUpdateAt ? asset.lastPriceUpdateAt.toISOString() : null,
+    lastPricePointAt: asset.pricePoints[0]?.date ? asset.pricePoints[0].date.toISOString() : null,
+  }));
 };

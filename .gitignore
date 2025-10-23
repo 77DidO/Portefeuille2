@@ -9,3 +9,14 @@ tmp/
 *.tmp
 .tmp*.mjs
 tmp*.mjs
+# Local export snapshots
+last-portfolios.json
+output.json
+
+# Ad-hoc utility scripts (keep the main ones tracked)
+scripts/*.mjs
+!scripts/dev.mjs
+!scripts/format.mjs
+
+# Local scratch notes
+temp*.txt

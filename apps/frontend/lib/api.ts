@@ -8,6 +8,7 @@ import type {
   AssetRefreshResult,
   RefreshAssetsResponse,
   BackfillPriceHistoryResponse,
+  AssetStaleness,
 } from '@portefeuille/types';
 import { API_URL } from './config';
 
@@ -34,6 +35,17 @@ export const api = {
   getPortfolios: () => request<PortfolioSummary[]>('/portfolios'),
   getPortfolio: (id: number) => request<PortfolioDetail>(`/portfolios/${id}`),
   getAsset: (id: number) => request<AssetDetail>(`/assets/${id}`),
+  getStaleAssets: (params?: { staleDays?: number; portfolioId?: number }) => {
+    const search = new URLSearchParams();
+    if (params?.staleDays !== undefined) {
+      search.set('staleDays', String(params.staleDays));
+    }
+    if (params?.portfolioId !== undefined) {
+      search.set('portfolioId', String(params.portfolioId));
+    }
+    const query = search.toString();
+    return request<AssetStaleness[]>(`/assets${query ? `?${query}` : ''}`);
+  },
   importCsv: (payload: ImportRequestBody) =>
     request<{ imported: number; skipped?: number }>(`/import`, {
       method: 'POST' satisfies HttpMethod,

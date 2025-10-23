@@ -137,3 +137,13 @@ export interface BackfillPriceHistoryResponse {
   skipped: BackfillPriceHistorySkip[];
   errors: BackfillPriceHistoryError[];
 }
+
+export interface AssetStaleness {
+  id: number;
+  portfolioId: number;
+  portfolioName: string;
+  symbol: string;
+  name: string;
+  lastPriceUpdateAt: string | null;
+  lastPricePointAt: string | null;
+}

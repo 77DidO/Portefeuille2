@@ -146,7 +146,15 @@ const parseCreditAgricole = (records: CsvRecord[]): ParsedRow[] => {
     );
     const amountNet = normaliseNumber(row['montant net'] || row['montant'] || row['montantnet']);
     const feeRaw = normaliseNumber(row['frais']);
-    const fee = feeRaw !== 0 ? Math.abs(feeRaw) : null;
+    let fee = feeRaw !== 0 ? Math.abs(feeRaw) : null;
+    if (fee === null && quantity !== 0 && price !== 0 && amountNet !== 0) {
+      const theoretical = Math.abs(price * quantity);
+      const netAmount = Math.abs(amountNet);
+      const diff = Math.abs(netAmount - theoretical);
+      if (diff >= 0.005) {
+        fee = Number(diff.toFixed(2));
+      }
+    }
     const dateRaw =
       row['date'] ||
       row['dateoperation'] ||
@@ -454,7 +462,7 @@ const parseBinance = async (records: CsvRecord[]): Promise<ParsedRow[]> => {
     const isRevenue = event.amount > 0 && op.includes('revenue');
     const isSpend =
       event.amount < 0 &&
-      (op.includes('spend') || op.includes('convert') || op.includes('trade'));
+      (op.includes('spend') || op.includes('convert') || op.includes('trade') || op.includes('deposit'));
     const isBuy =
       event.amount > 0 && (op.includes('buy') || op.includes('convert') || op.includes('earn') || op.includes('trade'));
 
@@ -590,13 +598,30 @@ export const importCsv = async (portfolioId: number, source: keyof typeof parser
         type: row.transactionType,
         date: row.date,
         quantity: quantityString,
-        price: priceString,
         source: row.source,
-        fee: feeString ?? undefined,
       },
     });
 
     if (existingTransaction) {
+      const updates: Record<string, string | null> = {};
+      const currentPrice = existingTransaction.price ? existingTransaction.price.toString() : null;
+      if (priceString !== currentPrice) {
+        updates.price = priceString;
+      }
+      const currentFee = existingTransaction.fee ? existingTransaction.fee.toString() : null;
+      if (feeString !== null) {
+        if (currentFee !== feeString) {
+          updates.fee = feeString;
+        }
+      } else if (currentFee !== null) {
+        updates.fee = null;
+      }
+      if (Object.keys(updates).length > 0) {
+        await prisma.transaction.update({
+          where: { id: existingTransaction.id },
+          data: updates,
+        });
+      }
       skippedCount += 1;
     } else {
       await prisma.transaction.create({

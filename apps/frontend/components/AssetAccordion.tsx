@@ -1,12 +1,13 @@
 'use client';
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
 import type { MouseEvent } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import type { AssetSummary, AssetDetail } from '@portefeuille/types';
 import { api } from '@/lib/api';
 import clsx from 'clsx';
-import { AreaChart, Area, ResponsiveContainer, XAxis, YAxis, Tooltip } from 'recharts';
+import { AreaChart, Area, ResponsiveContainer, XAxis, YAxis, Tooltip, ReferenceLine } from 'recharts';
+import type { TooltipProps } from 'recharts';
 
 const formatCurrency = (value: number) =>
   new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(value);
@@ -32,6 +33,55 @@ const computeTrendMetrics = (trend: AssetSummary['trend']) => {
   return { change, percent, status };
 };
 
+const buildAssetTooltip =
+  (detail: AssetDetail | undefined, formatDate: (value: number) => string) =>
+  ({ active, payload, label }: TooltipProps<number, string>) => {
+    if (!active || !payload || payload.length === 0) {
+      return null;
+    }
+    const pointValueRaw = payload[0]?.value;
+    const price =
+      typeof pointValueRaw === 'number' ? pointValueRaw : Number(pointValueRaw ?? 0);
+    const quantity = detail?.quantity ?? 0;
+    const invested = detail?.investedValue ?? 0;
+    const hasQuantity = quantity > 0 && invested !== 0;
+    const totalValue = hasQuantity ? price * quantity : 0;
+    const delta = hasQuantity ? totalValue - invested : 0;
+    const deltaColor = delta > 0 ? '#34d399' : delta < 0 ? '#f87171' : '#94a3b8';
+    const labelValue =
+      typeof label === 'number' ? formatDate(label) : String(label ?? '');
+
+    return (
+      <div
+        style={{
+          background: 'rgba(15, 23, 42, 0.92)',
+          border: '1px solid rgba(96, 165, 250, 0.35)',
+          borderRadius: 8,
+          padding: '0.5rem 0.75rem',
+          fontSize: '0.75rem',
+          color: '#e2e8f0',
+          minWidth: '7.5rem',
+        }}
+      >
+        <div style={{ color: '#94a3b8', marginBottom: '0.3rem' }}>{labelValue}</div>
+        <div style={{ marginBottom: hasQuantity ? '0.2rem' : 0 }}>
+          Cours : {formatCurrency(price)}
+        </div>
+        {hasQuantity && (
+          <>
+            <div style={{ marginBottom: '0.2rem' }}>
+              Valeur totale : {formatCurrency(totalValue)}
+            </div>
+            <div style={{ color: deltaColor }}>
+              Plus/moins-value : {delta >= 0 ? '+' : ''}
+              {formatCurrency(delta)}
+            </div>
+          </>
+        )}
+      </div>
+    );
+  };
+
 interface AssetAccordionProps {
   assets: AssetSummary[];
   refreshTrigger?: number | null;
@@ -53,6 +103,14 @@ export const AssetAccordion = ({ assets, refreshTrigger }: AssetAccordionProps) 
   const refreshMutation = useMutation({
     mutationFn: (assetId: number) => api.refreshAsset(assetId),
   });
+  const dateFormatter = useMemo(
+    () => new Intl.DateTimeFormat('fr-FR', { timeZone: 'UTC' }),
+    [],
+  );
+  const formatDate = useCallback(
+    (value: number) => dateFormatter.format(new Date(value)),
+    [dateFormatter],
+  );
 
   const loadAssetDetail = useCallback(async (assetId: number) => {
     try {
@@ -152,9 +210,14 @@ export const AssetAccordion = ({ assets, refreshTrigger }: AssetAccordionProps) 
               role="button"
               aria-expanded={isExpanded}
             >
-              <div>
-                <div className="symbol">{asset.symbol}</div>
-                <div style={{ fontSize: '0.85rem', color: '#94a3b8' }}>{asset.name}</div>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                    <div className="symbol">{asset.symbol}</div>
+                    {asset.symbol && ['EUR', 'USDC', 'USDT', 'USD', 'GBP', 'CHF'].includes(asset.symbol.toUpperCase()) ? (
+                      <span className="badge">Fiat</span>
+                    ) : null}
+                  </div>
+                  <div style={{ fontSize: '0.85rem', color: '#94a3b8' }}>{asset.name}</div>
                 <div style={{ marginTop: '0.35rem', fontSize: '0.8rem', color: '#cbd5f5' }}>
                   Qt globale&nbsp;:{' '}
                   <strong style={{ color: '#e2e8f0' }}>{formatQuantity(asset.quantity)}</strong>
@@ -248,7 +311,7 @@ export const AssetAccordion = ({ assets, refreshTrigger }: AssetAccordionProps) 
                       <ResponsiveContainer width="100%" height="100%">
                         <AreaChart
                           data={assetDetail.priceHistory.map((point) => ({
-                            date: new Date(point.date).toLocaleDateString('fr-FR'),
+                            date: new Date(point.date).getTime(),
                             value: point.value,
                           }))}
                           margin={{ top: 8, right: 12, left: 0, bottom: 0 }}
@@ -261,9 +324,13 @@ export const AssetAccordion = ({ assets, refreshTrigger }: AssetAccordionProps) 
                           </defs>
                           <XAxis
                             dataKey="date"
+                            type="number"
+                            domain={['dataMin', 'dataMax']}
+                            scale="time"
                             minTickGap={20}
                             tick={{ fontSize: 10, fill: '#94a3b8' }}
                             stroke="rgba(148, 163, 184, 0.2)"
+                            tickFormatter={(value: number) => formatDate(value)}
                           />
                           <YAxis
                             tick={{ fontSize: 10, fill: '#94a3b8' }}
@@ -273,16 +340,23 @@ export const AssetAccordion = ({ assets, refreshTrigger }: AssetAccordionProps) 
                           />
                           <Tooltip
                             cursor={{ stroke: 'rgba(96, 165, 250, 0.35)', strokeWidth: 1 }}
-                            contentStyle={{
-                              background: 'rgba(15, 23, 42, 0.92)',
-                              border: '1px solid rgba(96, 165, 250, 0.35)',
-                              borderRadius: 8,
-                              fontSize: '0.75rem',
-                              color: '#e2e8f0',
-                            }}
-                            formatter={(value: number) => [formatCurrency(value), 'Cours']}
-                            labelStyle={{ color: '#94a3b8' }}
+                            content={buildAssetTooltip(assetDetail, formatDate)}
                           />
+                          {assetDetail.investedValue > 0 && assetDetail.quantity > 0 && (
+                            <ReferenceLine
+                              y={assetDetail.investedValue / assetDetail.quantity}
+                              stroke="rgba(248, 113, 113, 0.65)"
+                              strokeDasharray="4 4"
+                              label={{
+                                position: 'right',
+                                value: `Cout moyen ${formatCurrency(
+                                  assetDetail.investedValue / assetDetail.quantity,
+                                )}`,
+                                fill: '#f8fafc',
+                                fontSize: 10,
+                              }}
+                            />
+                          )}
                           <Area
                             type="monotone"
                             dataKey="value"
@@ -302,6 +376,7 @@ export const AssetAccordion = ({ assets, refreshTrigger }: AssetAccordionProps) 
                           <th>Type</th>
                           <th>Quantite</th>
                           <th>Prix</th>
+                          <th>Frais</th>
                           <th>Montant</th>
                           <th>Source</th>
                         </tr>
@@ -323,6 +398,7 @@ export const AssetAccordion = ({ assets, refreshTrigger }: AssetAccordionProps) 
                             </td>
                             <td>{tx.quantity}</td>
                             <td>{formatCurrency(tx.price)}</td>
+                            <td>{tx.fee !== null && tx.fee !== undefined ? formatCurrency(tx.fee) : '-'}</td>
                             <td>{formatCurrency(tx.price * tx.quantity)}</td>
                             <td>{tx.source ?? '-'}</td>
                           </tr>
@@ -339,3 +415,4 @@ export const AssetAccordion = ({ assets, refreshTrigger }: AssetAccordionProps) 
     </div>
   );
 };
+

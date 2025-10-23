@@ -36,12 +36,13 @@ const computeAssetSummary = (asset: AssetWithRelations): AssetSummary => {
     value: toNumber(pp.price),
   }));
 
-  const isCashAsset = asset.symbol?.toUpperCase?.() === 'PEA_CASH' || asset.symbol?.toUpperCase?.() === '_PEA_CASH';
+  const isCashAsset = ['PEA_CASH', '_PEA_CASH', 'CASH'].includes(asset.symbol?.toUpperCase?.() ?? '');
   const adjustedQuantity = isCashAsset ? Math.max(netQuantity, 0) : netQuantity;
+  const cashUnitPrice = latestPriceValue ?? 1;
   const adjustedMarketValue =
-    isCashAsset && latestPriceValue !== null ? Math.max(latestPriceValue * adjustedQuantity, 0) : marketValue;
+    isCashAsset ? Math.max(cashUnitPrice * adjustedQuantity, 0) : marketValue;
   const adjustedInvested = isCashAsset ? adjustedMarketValue : invested;
-  const adjustedGainLoss = adjustedMarketValue - adjustedInvested;
+  const adjustedGainLoss = isCashAsset ? 0 : adjustedMarketValue - adjustedInvested;
   const adjustedGainLossPercentage =
     isCashAsset || adjustedInvested === 0 ? 0 : (adjustedGainLoss / adjustedInvested) * 100;
 
@@ -118,13 +119,81 @@ export const getPortfolioDetail = async (id: number): Promise<PortfolioDetail | 
     return null;
   }
   const summary = computePortfolioTotals(portfolio);
-  const aggregatedPricePoints = portfolio.assets
-    .flatMap((asset) => asset.pricePoints)
-    .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-  const priceHistory: TrendPoint[] = aggregatedPricePoints.map((point) => ({
-    date: point.date.toISOString(),
-    value: toNumber(point.price),
-  }));
+  const dailyTotals = new Map<
+    string,
+    {
+      timestamp: number;
+      value: number;
+    }
+  >();
+
+  portfolio.assets.forEach((asset) => {
+    const sortedPoints = [...asset.pricePoints].sort(
+      (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
+    );
+    if (sortedPoints.length === 0) {
+      return;
+    }
+    const transactions = [...asset.transactions].sort(
+      (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
+    );
+    let txIndex = 0;
+    let runningQuantity = 0;
+    const dailyContribution = new Map<
+      string,
+      {
+        timestamp: number;
+        value: number;
+      }
+    >();
+
+    sortedPoints.forEach((point) => {
+      const pointTime = new Date(point.date).getTime();
+      while (txIndex < transactions.length && new Date(transactions[txIndex].date).getTime() <= pointTime) {
+        const tx = transactions[txIndex];
+        const qty = toNumber(tx.quantity);
+        runningQuantity += tx.type === 'BUY' ? qty : -qty;
+        txIndex += 1;
+      }
+      if (runningQuantity === 0) {
+        return;
+      }
+      const value = toNumber(point.price) * runningQuantity;
+      const pointDate = new Date(point.date);
+      const dayKey = pointDate.toISOString().split('T')[0];
+      const dayTimestamp = Date.UTC(
+        pointDate.getUTCFullYear(),
+        pointDate.getUTCMonth(),
+        pointDate.getUTCDate(),
+      );
+      const existingPerDay = dailyContribution.get(dayKey);
+      if (!existingPerDay || pointTime >= existingPerDay.timestamp) {
+        dailyContribution.set(dayKey, {
+          timestamp: Math.max(pointTime, dayTimestamp),
+          value,
+        });
+      }
+    });
+
+    dailyContribution.forEach((entry, dayKey) => {
+      const existing = dailyTotals.get(dayKey);
+      if (existing) {
+        dailyTotals.set(dayKey, {
+          timestamp: Math.max(existing.timestamp, entry.timestamp),
+          value: existing.value + entry.value,
+        });
+      } else {
+        dailyTotals.set(dayKey, { ...entry });
+      }
+    });
+  });
+
+  const priceHistory: TrendPoint[] = [...dailyTotals.entries()]
+    .sort((a, b) => a[1].timestamp - b[1].timestamp)
+    .map(([, entry]) => ({
+      date: new Date(entry.timestamp).toISOString(),
+      value: roundCurrency(entry.value),
+    }));
   return {
     ...summary,
     priceHistory,
