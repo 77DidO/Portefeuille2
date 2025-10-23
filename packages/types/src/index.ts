@@ -70,6 +70,8 @@ export interface AssetDetail extends AssetSummary {
 
 export interface PortfolioDetail extends PortfolioSummary {
   priceHistory: TrendPoint[];
+  investedHistory: TrendPoint[];
+  cashHistory?: TrendPoint[];
 }
 
 export interface ImportRequestBody {

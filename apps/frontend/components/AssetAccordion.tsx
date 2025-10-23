@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useEffect, useMemo } from 'react';
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import type { MouseEvent } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import type { AssetSummary, AssetDetail } from '@portefeuille/types';
@@ -8,6 +8,7 @@ import { api } from '@/lib/api';
 import clsx from 'clsx';
 import { AreaChart, Area, ResponsiveContainer, XAxis, YAxis, Tooltip, ReferenceLine } from 'recharts';
 import type { TooltipProps } from 'recharts';
+import { useToast } from '@/components/ToastProvider';
 
 const formatCurrency = (value: number) =>
   new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(value);
@@ -87,22 +88,18 @@ interface AssetAccordionProps {
   refreshTrigger?: number | null;
 }
 
-type RefreshFeedback = {
-  message: string;
-  variant: 'success' | 'error' | 'info';
-};
-
 export const AssetAccordion = ({ assets, refreshTrigger }: AssetAccordionProps) => {
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [details, setDetails] = useState<Record<number, AssetDetail>>({});
   const [loading, setLoading] = useState<Record<number, boolean>>({});
   const [error, setError] = useState<Record<number, string>>({});
   const [refreshing, setRefreshing] = useState<Record<number, boolean>>({});
-  const [feedback, setFeedback] = useState<Record<number, RefreshFeedback>>({});
   const queryClient = useQueryClient();
   const refreshMutation = useMutation({
     mutationFn: (assetId: number) => api.refreshAsset(assetId),
   });
+  const { pushToast, dismissToast } = useToast();
+  const refreshToastRef = useRef<Record<number, string | null>>({});
   const dateFormatter = useMemo(
     () => new Intl.DateTimeFormat('fr-FR', { timeZone: 'UTC' }),
     [],
@@ -149,13 +146,27 @@ export const AssetAccordion = ({ assets, refreshTrigger }: AssetAccordionProps) 
     void loadAssetDetail(expandedId);
   }, [refreshTrigger, expandedId, loadAssetDetail]);
 
+  useEffect(
+    () => () => {
+      Object.values(refreshToastRef.current).forEach((toastId) => {
+        if (toastId) {
+          dismissToast(toastId);
+        }
+      });
+      refreshToastRef.current = {};
+    },
+    [dismissToast],
+  );
+
   const handleRefreshAsset = useCallback(
     async (event: MouseEvent<HTMLButtonElement>, assetId: number) => {
       event.stopPropagation();
-      setFeedback((prev) => ({
-        ...prev,
-        [assetId]: { message: 'Actualisation en cours...', variant: 'info' },
-      }));
+      const toastId = pushToast({
+        message: 'Actualisation en cours...',
+        variant: 'info',
+        duration: 0,
+      });
+      refreshToastRef.current[assetId] = toastId;
       setRefreshing((prev) => ({ ...prev, [assetId]: true }));
       try {
         await refreshMutation.mutateAsync(assetId);
@@ -163,23 +174,22 @@ export const AssetAccordion = ({ assets, refreshTrigger }: AssetAccordionProps) 
         if (expandedId === assetId) {
           await loadAssetDetail(assetId);
         }
-        setFeedback((prev) => ({
-          ...prev,
-          [assetId]: { message: 'Prix mis a jour.', variant: 'success' },
-        }));
+        pushToast({ message: 'Prix mis a jour.', variant: 'success' });
       } catch (err) {
-        setFeedback((prev) => ({
-          ...prev,
-          [assetId]: {
-            message: err instanceof Error ? err.message : 'Echec de la mise a jour.',
-            variant: 'error',
-          },
-        }));
+        pushToast({
+          message: err instanceof Error ? err.message : 'Echec de la mise a jour.',
+          variant: 'error',
+        });
       } finally {
+        const progressToastId = refreshToastRef.current[assetId];
+        if (progressToastId) {
+          dismissToast(progressToastId);
+          delete refreshToastRef.current[assetId];
+        }
         setRefreshing((prev) => ({ ...prev, [assetId]: false }));
       }
     },
-    [expandedId, loadAssetDetail, queryClient, refreshMutation],
+    [dismissToast, expandedId, loadAssetDetail, pushToast, queryClient, refreshMutation],
   );
 
   return (
@@ -188,19 +198,25 @@ export const AssetAccordion = ({ assets, refreshTrigger }: AssetAccordionProps) 
         const isExpanded = expandedId === asset.id;
         const assetDetail = details[asset.id];
         const trend = computeTrendMetrics(asset.trend);
-        const trendColor =
-          trend?.status === 'up'
-            ? '#34d399'
-            : trend?.status === 'down'
-            ? '#f87171'
-            : '#94a3b8';
         const trendIcon = trend?.status === 'up' ? '+' : trend?.status === 'down' ? '-' : '~';
+        const trendClassName = clsx('asset-trend', {
+          'asset-trend--up': trend?.status === 'up',
+          'asset-trend--down': trend?.status === 'down',
+          'asset-trend--flat': trend?.status === 'flat',
+        });
         const lastUpdateDate = asset.lastPriceUpdateAt ? new Date(asset.lastPriceUpdateAt) : null;
         const lastUpdateLabel = lastUpdateDate
           ? lastUpdateDate.toLocaleString('fr-FR')
           : 'Jamais';
         const isAssetRefreshing = refreshing[asset.id] ?? false;
-        const assetFeedback = feedback[asset.id];
+
+        const deltaClassName = clsx('asset-metrics__delta', {
+          'asset-metrics__delta--up': asset.gainLossValue >= 0,
+          'asset-metrics__delta--down': asset.gainLossValue < 0,
+        });
+
+        const latestPriceLabel =
+          asset.latestPrice !== null ? formatCurrency(asset.latestPrice) : '-';
 
         return (
           <div key={asset.id} className="asset-card">
@@ -210,79 +226,104 @@ export const AssetAccordion = ({ assets, refreshTrigger }: AssetAccordionProps) 
               role="button"
               aria-expanded={isExpanded}
             >
-                <div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+              <div className="asset-info">
+                <div className="asset-info__body">
+                  <div className="asset-info__identity">
                     <div className="symbol">{asset.symbol}</div>
-                    {asset.symbol && ['EUR', 'USDC', 'USDT', 'USD', 'GBP', 'CHF'].includes(asset.symbol.toUpperCase()) ? (
-                      <span className="badge">Fiat</span>
+                    {asset.symbol &&
+                    ['EUR', 'USDC', 'USDT', 'USD', 'GBP', 'CHF'].includes(asset.symbol.toUpperCase()) ? (
+                      <span className="badge badge--muted">Fiat</span>
                     ) : null}
+                    <span className="asset-info__name">{asset.name}</span>
+                    <span className="asset-info__quantity">
+                      Qt globale&nbsp;:<strong>{formatQuantity(asset.quantity)}</strong>
+                    </span>
+                    {trend ? (
+                      <span className={trendClassName}>
+                        <span>{trendIcon}</span>
+                        <span>{`${Math.abs(trend.percent).toFixed(2)}%`}</span>
+                      </span>
+                    ) : (
+                      <span className="asset-trend asset-trend--empty">Tendance indisponible</span>
+                    )}
                   </div>
-                  <div style={{ fontSize: '0.85rem', color: '#94a3b8' }}>{asset.name}</div>
-                <div style={{ marginTop: '0.35rem', fontSize: '0.8rem', color: '#cbd5f5' }}>
-                  Qt globale&nbsp;:{' '}
-                  <strong style={{ color: '#e2e8f0' }}>{formatQuantity(asset.quantity)}</strong>
-                </div>
-                {trend ? (
-                  <div
-                    style={{
-                      marginTop: '0.2rem',
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '0.25rem',
-                      fontSize: '0.68rem',
-                      color: trendColor,
-                      backgroundColor: 'rgba(148, 163, 184, 0.12)',
-                      borderRadius: '9999px',
-                      padding: '0.15rem 0.5rem',
-                    }}
-                  >
-                    <span>{trendIcon}</span>
-                    <span>{`${Math.abs(trend.percent).toFixed(2)}%`}</span>
+                  <div className="asset-info__meta">
+                    <div className="asset-metrics">
+                      <span className="asset-metrics__value">{formatCurrency(asset.marketValue)}</span>
+                      <span className={deltaClassName}>
+                        {asset.gainLossValue >= 0 ? '+' : ''}
+                        {formatCurrency(asset.gainLossValue)} ({asset.gainLossPercentage.toFixed(2)}%)
+                      </span>
+                      <span className="asset-metrics__price">
+                        Cours&nbsp;:<strong>{latestPriceLabel}</strong>
+                      </span>
+                    </div>
+                    <div className="asset-actions">
+                      <div className="asset-updated" title={`Derniere mise a jour : ${lastUpdateLabel}`}>
+                        <svg
+                          className="asset-updated__icon"
+                          viewBox="0 0 20 20"
+                          fill="none"
+                          xmlns="http://www.w3.org/2000/svg"
+                        >
+                          <circle cx="10" cy="10" r="7" stroke="currentColor" strokeWidth="1.6" />
+                          <path
+                            d="M10 6v4l2.6 1.6"
+                            stroke="currentColor"
+                            strokeWidth="1.6"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
+                        </svg>
+                        <span className="asset-updated__label">{lastUpdateLabel}</span>
+                      </div>
+                      <button
+                        type="button"
+                        className={clsx('asset-refresh', { 'asset-refresh--loading': isAssetRefreshing })}
+                        onClick={(event) => handleRefreshAsset(event, asset.id)}
+                        disabled={isAssetRefreshing}
+                        aria-label="Actualiser l'actif"
+                        title="Actualiser l'actif"
+                      >
+                        <svg
+                          className="asset-refresh__icon"
+                          viewBox="0 0 20 20"
+                          fill="none"
+                          xmlns="http://www.w3.org/2000/svg"
+                        >
+                          <path
+                            d="M3 10a7 7 0 0 1 11.9-5l.6.6"
+                            stroke="currentColor"
+                            strokeWidth="1.6"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
+                          <path
+                            d="m15.5 3.5.5 2.8-2.8-.4"
+                            stroke="currentColor"
+                            strokeWidth="1.6"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
+                          <path
+                            d="M17 10a7 7 0 0 1-11.9 5l-.6-.6"
+                            stroke="currentColor"
+                            strokeWidth="1.6"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
+                          <path
+                            d="m4.5 16.5-.5-2.8 2.8.4"
+                            stroke="currentColor"
+                            strokeWidth="1.6"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
+                        </svg>
+                      </button>
+                    </div>
                   </div>
-                ) : (
-                  <div style={{ marginTop: '0.2rem', fontSize: '0.68rem', color: '#94a3b8' }}>
-                    Tendance indisponible
-                  </div>
-                )}
-                <div style={{ marginTop: '0.2rem', fontSize: '0.68rem', color: '#94a3b8' }}>
-                  Derniere mise a jour :{' '}
-                  <span style={{ color: '#e2e8f0' }}>{lastUpdateLabel}</span>
                 </div>
-              </div>
-              <div style={{ textAlign: 'right' }}>
-                <div className="value" style={{ fontSize: '1rem' }}>
-                  {formatCurrency(asset.marketValue)}
-                </div>
-                <div
-                  className="delta"
-                  style={{ color: asset.gainLossValue >= 0 ? '#34d399' : '#f87171', fontSize: '0.78rem' }}
-                >
-                  {asset.gainLossValue >= 0 ? '+' : ''}
-                  {formatCurrency(asset.gainLossValue)} ({asset.gainLossPercentage.toFixed(2)}%)
-                </div>
-                <div style={{ marginTop: '0.3rem', fontSize: '0.75rem', color: '#94a3b8' }}>
-                  Cours actuel&nbsp;:
-                  <strong style={{ color: '#e2e8f0', marginLeft: '0.35rem' }}>
-                    {asset.latestPrice !== null ? formatCurrency(asset.latestPrice) : '—'}
-                  </strong>
-                </div>
-                <button
-                  type="button"
-                  onClick={(event) => handleRefreshAsset(event, asset.id)}
-                  disabled={isAssetRefreshing}
-                  style={{
-                    marginTop: '0.75rem',
-                    padding: '0.35rem 0.75rem',
-                    borderRadius: '9999px',
-                    border: '1px solid rgba(148, 163, 184, 0.35)',
-                    backgroundColor: '#0f172a',
-                    color: '#38bdf8',
-                    fontSize: '0.75rem',
-                    cursor: isAssetRefreshing ? 'wait' : 'pointer',
-                  }}
-                >
-                  {isAssetRefreshing ? 'Actualisation...' : 'Actualiser'}
-                </button>
               </div>
             </div>
             <div
@@ -291,19 +332,6 @@ export const AssetAccordion = ({ assets, refreshTrigger }: AssetAccordionProps) 
             >
               {loading[asset.id] && <div className="alert">Chargement...</div>}
               {error[asset.id] && <div className="alert error">{error[asset.id]}</div>}
-              {assetFeedback && (
-                <div
-                  className={`alert${
-                    assetFeedback.variant === 'error'
-                      ? ' error'
-                      : assetFeedback.variant === 'success'
-                      ? ' success'
-                      : ''
-                  }`}
-                >
-                  {assetFeedback.message}
-                </div>
-              )}
               {assetDetail && (
                 <div style={{ display: 'grid', gap: '1.2rem' }}>
                   {assetDetail.priceHistory.length > 0 && (
@@ -345,7 +373,7 @@ export const AssetAccordion = ({ assets, refreshTrigger }: AssetAccordionProps) 
                           {assetDetail.investedValue > 0 && assetDetail.quantity > 0 && (
                             <ReferenceLine
                               y={assetDetail.investedValue / assetDetail.quantity}
-                              stroke="rgba(248, 113, 113, 0.65)"
+                              stroke="#f8fafc"
                               strokeDasharray="4 4"
                               label={{
                                 position: 'right',

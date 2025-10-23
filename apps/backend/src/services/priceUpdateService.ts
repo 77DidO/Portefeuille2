@@ -83,6 +83,17 @@ const isCashSymbol = (symbol: string) => {
   const upper = symbol.trim().toUpperCase();
   return upper === 'PEA_CASH' || upper === '_PEA_CASH' || upper === 'CASH';
 };
+const isManualPriceSymbol = (symbol: string | null | undefined) => {
+  if (!symbol) {
+    return false;
+  }
+  const trimmed = symbol.trim();
+  if (trimmed.length === 0) {
+    return false;
+  }
+  // Symbol purely numérique (ex : parts sociales locales) ou ISIN invalide -> prix manuel
+  return /^[0-9]+$/.test(trimmed);
+};
 
 const BINANCE_CONVERSION_CONFIG: Record<
   string,
@@ -675,6 +686,35 @@ const fetchQuote = async (symbol: string, extraQueries: string[] = []) => {
   throw new Error(`Aucun prix disponible pour ${symbol}`);
 };
 
+const deriveManualPrice = async (assetId: number) => {
+  const latestTransaction = await prisma.transaction.findFirst({
+    where: { assetId },
+    orderBy: { date: 'desc' },
+  });
+  if (latestTransaction && latestTransaction.price) {
+    const numericPrice = Number(latestTransaction.price);
+    if (!Number.isNaN(numericPrice) && numericPrice > 0) {
+      return {
+        price: numericPrice,
+        priceDate: new Date(latestTransaction.date),
+        source: 'manual-transaction' as const,
+      };
+    }
+  }
+  const latestPricePoint = await prisma.pricePoint.findFirst({
+    where: { assetId },
+    orderBy: { date: 'desc' },
+  });
+  if (latestPricePoint && latestPricePoint.price) {
+    return {
+      price: Number(latestPricePoint.price),
+      priceDate: latestPricePoint.date,
+      source: 'manual-persisted' as const,
+    };
+  }
+  return null;
+};
+
 export const refreshAssetPrice = async (assetId: number) => {
   const asset = await prisma.asset.findUnique({ where: { id: assetId } });
   if (!asset) {
@@ -690,6 +730,14 @@ export const refreshAssetPrice = async (assetId: number) => {
     const staticPrice = getStaticPriceQuote(asset.symbol);
     if (staticPrice) {
       return staticPrice;
+    }
+
+    if (isManualPriceSymbol(asset.symbol)) {
+      const manual = await deriveManualPrice(asset.id);
+      if (manual) {
+        return manual;
+      }
+      throw new Error(`Aucun prix manuel disponible pour ${asset.symbol}`);
     }
 
     if (isCrypto) {

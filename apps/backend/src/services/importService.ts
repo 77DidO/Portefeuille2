@@ -115,7 +115,7 @@ const stripPrelude = (csv: string): string => {
 type CsvParser = (records: CsvRecord[]) => Promise<ParsedRow[]> | ParsedRow[];
 
 const PEA_CASH_SYMBOL = '_PEA_CASH';
-const PEA_CASH_NAME = 'PEA - Liquidités';
+const PEA_CASH_NAME = 'PEA - Liquidit?s';
 
 const parseCreditAgricole = (records: CsvRecord[]): ParsedRow[] => {
   const transactions: ParsedRow[] = [];
@@ -171,21 +171,6 @@ const parseCreditAgricole = (records: CsvRecord[]): ParsedRow[] => {
 
     const date = dateRaw ? normaliseDate(dateRaw) : new Date();
 
-    const hasAsset = quantity !== 0 && price !== 0 && symbol;
-    if (hasAsset) {
-      transactions.push({
-        symbol: symbol ?? name ?? 'INCONNU',
-        name: name ?? symbol ?? 'Valeur Credit Agricole',
-        type: 'STOCK',
-        date,
-        price,
-        quantity,
-        transactionType,
-        source: 'credit-agricole',
-        fee,
-      });
-    }
-
     const operation = normaliseText(
       row['operation'] ||
         row['typedoperation'] ||
@@ -193,6 +178,39 @@ const parseCreditAgricole = (records: CsvRecord[]): ParsedRow[] => {
         row['type d operation'] ||
         row['sens'],
     );
+    const isCashOnlyOperation =
+      operation.includes('versement') ||
+      operation.includes('remboursement') ||
+      operation.includes('plaf') ||
+      operation.includes('coupon') ||
+      operation.includes('dividende') ||
+      operation.includes('interet') ||
+      operation.includes('intérêt');
+
+    const hasAsset = quantity !== 0 && Boolean(symbol) && !isCashOnlyOperation;
+    const effectivePrice =
+      price === 0 && quantity !== 0 && amountNet !== 0
+        ? (() => {
+            const gross =
+              transactionType === 'BUY'
+                ? Math.abs(amountNet) - Math.abs(fee ?? 0)
+                : Math.abs(amountNet) + Math.abs(fee ?? 0);
+            return gross > 0 ? gross / Math.abs(quantity) : 0;
+          })()
+        : price;
+    if (hasAsset && effectivePrice > 0) {
+      transactions.push({
+        symbol: symbol ?? name ?? 'INCONNU',
+        name: name ?? symbol ?? 'Valeur Credit Agricole',
+        type: 'STOCK',
+        date,
+        price: effectivePrice,
+        quantity,
+        transactionType,
+        source: 'credit-agricole',
+        fee,
+      });
+    }
 
     const cashImpact =
       amountNet !== 0 ||
@@ -302,7 +320,48 @@ const parseBinance = async (records: CsvRecord[]): Promise<ParsedRow[]> => {
   const pendingBuys: BinanceEvent[] = [];
   const pendingSells: BinanceEvent[] = [];
   const pendingRevenues: BinanceEvent[] = [];
+  const pendingFees: BinanceEvent[] = [];
   const transactions: ParsedRow[] = [];
+
+  const takeAssociatedFee = async (...referenceEvents: BinanceEvent[]) => {
+    if (pendingFees.length === 0 || referenceEvents.length === 0) {
+      return null;
+    }
+
+    const collected: BinanceEvent[] = [];
+    for (let i = pendingFees.length - 1; i >= 0; i -= 1) {
+      const feeEvent = pendingFees[i];
+      const bestDiff = referenceEvents.reduce<number>((current, ref) => {
+        const diff = Math.abs(feeEvent.timestamp.getTime() - ref.timestamp.getTime());
+        return diff < current ? diff : current;
+      }, Number.POSITIVE_INFINITY);
+
+      if (bestDiff <= windowMs) {
+        collected.push(pendingFees.splice(i, 1)[0]);
+      }
+    }
+
+    if (collected.length === 0) {
+      return null;
+    }
+
+    let totalFeeEur = 0;
+    for (const feeEvent of collected) {
+      const amount = Math.abs(feeEvent.amount);
+      if (amount <= 0) {
+        continue;
+      }
+      const feeInEur = await convertToEur(feeEvent.coin, amount);
+      if (Number.isFinite(feeInEur) && feeInEur > 0) {
+        totalFeeEur += feeInEur;
+      }
+    }
+
+    if (totalFeeEur <= 0) {
+      return null;
+    }
+    return Number(totalFeeEur.toFixed(8));
+  };
 
   const findMatch = (list: BinanceEvent[], event: BinanceEvent) => {
     let matchIndex = -1;
@@ -335,6 +394,7 @@ const parseBinance = async (records: CsvRecord[]): Promise<ParsedRow[]> => {
     if (!Number.isFinite(pricePerUnitEur) || pricePerUnitEur <= 0) {
       return;
     }
+    const fee = await takeAssociatedFee(buyEvent, spendEvent);
     transactions.push({
       symbol: buyEvent.coin,
       name: buyEvent.coin,
@@ -344,6 +404,7 @@ const parseBinance = async (records: CsvRecord[]): Promise<ParsedRow[]> => {
       quantity,
       transactionType: 'BUY',
       source: 'binance',
+      fee: fee ?? undefined,
     });
     const spendUnitPriceEur = spendInEur / spendQuantity;
     transactions.push({
@@ -372,6 +433,7 @@ const parseBinance = async (records: CsvRecord[]): Promise<ParsedRow[]> => {
     if (!Number.isFinite(pricePerUnitEur) || pricePerUnitEur <= 0) {
       return;
     }
+    const fee = await takeAssociatedFee(sellEvent, revenueEvent);
     transactions.push({
       symbol: sellEvent.coin,
       name: sellEvent.coin,
@@ -381,6 +443,7 @@ const parseBinance = async (records: CsvRecord[]): Promise<ParsedRow[]> => {
       quantity,
       transactionType: 'SELL',
       source: 'binance',
+      fee: fee ?? undefined,
     });
     const revenueUnitPriceEur = revenueInEur / revenueQuantity;
     transactions.push({
@@ -405,9 +468,11 @@ const parseBinance = async (records: CsvRecord[]): Promise<ParsedRow[]> => {
   };
 
   for (const event of events) {
+    evictStale(pendingFees, event);
     const op = event.operation;
     const isFee = op.includes('fee');
     if (isFee) {
+      pendingFees.push(event);
       continue;
     }
 
@@ -420,6 +485,7 @@ const parseBinance = async (records: CsvRecord[]): Promise<ParsedRow[]> => {
     if (isSimpleDeposit) {
       const rate = await getRate(event.coin);
       if (rate > 0) {
+        const fee = await takeAssociatedFee(event);
         transactions.push({
           symbol: event.coin,
           name: event.coin,
@@ -429,6 +495,7 @@ const parseBinance = async (records: CsvRecord[]): Promise<ParsedRow[]> => {
           quantity: event.amount,
           transactionType: 'BUY',
           source: 'binance',
+          fee: fee ?? undefined,
         });
       }
       continue;
@@ -444,6 +511,7 @@ const parseBinance = async (records: CsvRecord[]): Promise<ParsedRow[]> => {
       const quantity = Math.abs(event.amount);
       const rate = await getRate(event.coin);
       if (rate > 0) {
+        const fee = await takeAssociatedFee(event);
         transactions.push({
           symbol: event.coin,
           name: event.coin,
@@ -453,6 +521,7 @@ const parseBinance = async (records: CsvRecord[]): Promise<ParsedRow[]> => {
           quantity,
           transactionType: 'SELL',
           source: 'binance',
+          fee: fee ?? undefined,
         });
       }
       continue;

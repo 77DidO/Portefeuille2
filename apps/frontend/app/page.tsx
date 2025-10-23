@@ -1,17 +1,18 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { PortfolioSummary, RefreshAssetsResponse } from '@portefeuille/types';
 import { api } from '@/lib/api';
 import { DashboardCards } from '@/components/DashboardCards';
 import { PortfolioSection } from '@/components/PortfolioSection';
+import { useToast } from '@/components/ToastProvider';
 
 export default function HomePage() {
   const [selectedPortfolioId, setSelectedPortfolioId] = useState<number | null>(null);
-  const [refreshStatus, setRefreshStatus] = useState('');
-  const [refreshError, setRefreshError] = useState('');
   const [refreshTrigger, setRefreshTrigger] = useState<number | null>(null);
+  const refreshToastId = useRef<string | null>(null);
+  const { pushToast, dismissToast } = useToast();
   const queryClient = useQueryClient();
   const portfoliosQuery = useQuery({
     queryKey: ['portfolios'],
@@ -29,6 +30,17 @@ export default function HomePage() {
     () => portfolios.filter((portfolio) => portfolio.assets.length > 0),
     [portfolios],
   );
+  const assetLabels = useMemo(() => {
+    const map = new Map<number, string>();
+    portfolios.forEach((portfolio) => {
+      portfolio.assets.forEach((asset) => {
+        const parts = [asset.symbol?.toUpperCase(), asset.name].filter(Boolean);
+        const label = parts.length > 0 ? parts.join(' · ') : `Actif #${asset.id}`;
+        map.set(asset.id, `${portfolio.name} · ${label}`);
+      });
+    });
+    return map;
+  }, [portfolios]);
 
   useEffect(() => {
     if (visiblePortfolios.length === 0) {
@@ -53,32 +65,61 @@ export default function HomePage() {
   };
 
   const handleRefreshPrices = async () => {
+    const pendingToastId = pushToast({
+      message: 'Actualisation des prix en cours...',
+      variant: 'info',
+      duration: 0,
+    });
+    refreshToastId.current = pendingToastId;
     try {
-      setRefreshStatus('');
-      setRefreshError('');
       const payload = selectedPortfolioId ? { portfolioId: selectedPortfolioId } : undefined;
       const result = await refreshMutation.mutateAsync(payload);
       const { refreshed, failures } = result;
-      setRefreshStatus(
-        refreshed.length > 0
-          ? `${refreshed.length} actif${refreshed.length > 1 ? 's' : ''} mis a jour.`
-          : 'Aucun actif mis a jour.',
-      );
+
+      const summarizeList = (items: string[], limit = 4) => {
+        if (items.length === 0) {
+          return '';
+        }
+        const displayed = items.slice(0, limit);
+        const remaining = items.length - displayed.length;
+        let summary = displayed.join(', ');
+        if (remaining > 0) {
+          summary += ` +${remaining} autre${remaining > 1 ? 's' : ''}`;
+        }
+        return summary;
+      };
+
+      if (refreshed.length > 0) {
+        const labels = refreshed.map((item) => assetLabels.get(item.assetId) ?? `Actif #${item.assetId}`);
+        pushToast({
+          message: `Mises à jour (${refreshed.length}) : ${summarizeList(labels)}`,
+          variant: 'success',
+        });
+      } else {
+        pushToast({ message: 'Aucun actif mis à jour.', variant: 'info' });
+      }
+
       if (failures.length > 0) {
-        const messages = failures
-          .slice(0, 3)
-          .map((failure) => `#${failure.assetId}: ${failure.message}`)
-          .join(' | ');
-        setRefreshError(
-          `${failures.length} echec${failures.length > 1 ? 's' : ''}. ${messages}`,
-        );
+        const failureLabels = failures.map((failure) => {
+          const base = assetLabels.get(failure.assetId) ?? `Actif #${failure.assetId}`;
+          return `${base} (${failure.message})`;
+        });
+        pushToast({
+          message: `Échecs (${failures.length}) : ${summarizeList(failureLabels, 3)}`,
+          variant: 'error',
+        });
       }
       setRefreshTrigger(Date.now());
     } catch (error) {
-      setRefreshStatus('');
-      setRefreshError(
-        error instanceof Error ? error.message : 'Echec de la mise a jour des prix.',
-      );
+      pushToast({
+        message: error instanceof Error ? error.message : 'Échec de la mise à jour des prix.',
+        variant: 'error',
+      });
+    } finally {
+      if (refreshToastId.current) {
+        dismissToast(refreshToastId.current);
+        refreshToastId.current = null;
+      }
     }
   };
 
@@ -109,12 +150,6 @@ export default function HomePage() {
           >
             {refreshMutation.isPending ? 'Actualisation...' : 'Actualiser les prix'}
           </button>
-          {(refreshStatus || refreshError) && (
-            <div style={{ fontSize: '0.8rem', maxWidth: 320, textAlign: 'right' }}>
-              {refreshStatus && <div style={{ color: '#38bdf8' }}>{refreshStatus}</div>}
-              {refreshError && <div style={{ color: '#f87171' }}>{refreshError}</div>}
-            </div>
-          )}
         </div>
       </header>
 

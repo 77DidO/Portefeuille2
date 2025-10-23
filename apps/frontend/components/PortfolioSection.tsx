@@ -1,10 +1,10 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import type { PortfolioSummary } from '@portefeuille/types';
 import clsx from 'clsx';
-import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, ReferenceLine } from 'recharts';
+import { ResponsiveContainer, ComposedChart, Area, XAxis, YAxis, Tooltip, Line, Legend } from 'recharts';
 import type { TooltipProps } from 'recharts';
 import { api } from '@/lib/api';
 import { AssetAccordion } from './AssetAccordion';
@@ -24,20 +24,68 @@ export const PortfolioSection = ({ portfolio, refreshTrigger }: PortfolioSection
   const gainClass = portfolio.gainLossValue === 0 ? '' : portfolio.gainLossValue > 0 ? 'positive' : 'negative';
   const gainPercentage =
     portfolio.investedValue !== 0 ? (portfolio.gainLossValue / portfolio.investedValue) * 100 : 0;
+  const [dateRange, setDateRange] = useState<'1M' | '3M' | '6M' | 'ALL'>('3M');
+  const rangeLookup: Record<typeof dateRange, number | null> = {
+    '1M': 30,
+    '3M': 90,
+    '6M': 180,
+    ALL: null,
+  };
   const detailQuery = useQuery({
     queryKey: ['portfolio-detail', portfolio.id],
     queryFn: () => api.getPortfolio(portfolio.id),
     staleTime: 60_000,
   });
-  const priceHistory = useMemo(() => {
-    if (!detailQuery.data?.priceHistory || detailQuery.data.priceHistory.length === 0) {
+  const chartData = useMemo(() => {
+    const detail = detailQuery.data;
+    if (!detail || !detail.priceHistory || detail.priceHistory.length === 0) {
       return [];
     }
-    return detailQuery.data.priceHistory.map((point) => ({
-      date: new Date(point.date).getTime(),
-      value: point.value,
+    const investedSeries = (detail.investedHistory ?? []).map((point) => ({
+      ts: new Date(point.date).getTime(),
+      value: typeof point.value === 'number' ? point.value : Number(point.value ?? 0),
     }));
-  }, [detailQuery.data]);
+    const cashSeries = (detail.cashHistory ?? []).map((point) => ({
+      ts: new Date(point.date).getTime(),
+      value: typeof point.value === 'number' ? point.value : Number(point.value ?? 0),
+    }));
+    let investedIdx = 0;
+    let cashIdx = 0;
+    let lastInvested = investedSeries[0]?.value ?? 0;
+    let lastCash = cashSeries[0]?.value ?? 0;
+
+    const lastTimestamp = new Date(detail.priceHistory[detail.priceHistory.length - 1].date).getTime();
+    const rangeDays = rangeLookup[dateRange];
+    const cutoffTimestamp =
+      rangeDays === null ? Number.NEGATIVE_INFINITY : lastTimestamp - rangeDays * 24 * 60 * 60 * 1000;
+
+    return detail.priceHistory
+      .map((point) => {
+        const timestamp = new Date(point.date).getTime();
+        while (investedIdx < investedSeries.length && investedSeries[investedIdx].ts <= timestamp) {
+          lastInvested = investedSeries[investedIdx].value;
+          investedIdx += 1;
+        }
+      while (cashIdx < cashSeries.length && cashSeries[cashIdx].ts <= timestamp) {
+        lastCash = cashSeries[cashIdx].value;
+        cashIdx += 1;
+      }
+        let pointValue = typeof point.value === 'number' ? point.value : Number(point.value ?? 0);
+        let investedValue = lastInvested;
+        let cashValue = lastCash;
+        const assetsValue = pointValue - cashValue;
+        if (investedValue > 0 && assetsValue <= 0) {
+          pointValue = investedValue + cashValue;
+        }
+        return {
+          date: timestamp,
+          value: pointValue,
+          invested: investedValue,
+          cash: cashValue,
+        };
+      })
+      .filter((point) => point.date >= cutoffTimestamp);
+  }, [dateRange, detailQuery.data]);
   const cashSymbols = new Set(['PEA_CASH', '_PEA_CASH', 'CASH']);
   if (portfolio.category === 'CRYPTO') {
     cashSymbols.add('EUR');
@@ -61,12 +109,39 @@ export const PortfolioSection = ({ portfolio, refreshTrigger }: PortfolioSection
     if (!active || !payload || payload.length === 0) {
       return null;
     }
-    const pointValueRaw = payload[0]?.value;
+    const valueEntry = payload.find((entry) => entry.dataKey === 'value');
+    const investedEntry = payload.find((entry) => entry.dataKey === 'invested');
+    const cashEntry = payload.find((entry) => entry.dataKey === 'cash');
+    const pointValueRaw = valueEntry?.value;
     const pointValue =
       typeof pointValueRaw === 'number' ? pointValueRaw : Number(pointValueRaw ?? 0);
+    const investedRaw = investedEntry?.value;
+    const investedValue =
+      typeof investedRaw === 'number'
+        ? investedRaw
+        : Number(
+            investedRaw ??
+              (valueEntry && typeof valueEntry.payload === 'object'
+                ? (valueEntry.payload as any)?.invested
+                : portfolio.investedValue ?? 0),
+          );
+    const cashRaw = cashEntry?.value;
+    const cashForTooltip =
+      typeof cashRaw === 'number'
+        ? cashRaw
+        : Number(
+            cashRaw ??
+              (valueEntry && typeof valueEntry.payload === 'object'
+                ? (valueEntry.payload as any)?.cash
+                : cashValue ?? 0),
+          );
+    let assetValue = pointValue - cashForTooltip;
+    if (investedValue > 0 && assetValue <= 0) {
+      assetValue = investedValue;
+    }
     const labelValue =
       typeof label === 'number' ? dateFormatter.format(new Date(label)) : String(label ?? '');
-    const delta = pointValue - portfolio.investedValue;
+    const delta = assetValue - investedValue;
     const deltaColor = delta > 0 ? '#34d399' : delta < 0 ? '#f87171' : '#94a3b8';
 
     return (
@@ -82,13 +157,14 @@ export const PortfolioSection = ({ portfolio, refreshTrigger }: PortfolioSection
         }}
       >
         <div style={{ color: '#94a3b8', marginBottom: '0.3rem' }}>{labelValue}</div>
-        <div style={{ marginBottom: '0.2rem' }}>Valeur : {format(pointValue)}</div>
-        {portfolio.investedValue !== 0 && (
-          <div style={{ color: deltaColor }}>
-            Plus/moins-value : {delta >= 0 ? '+' : ''}
-            {format(delta)}
-          </div>
-        )}
+        <div style={{ marginBottom: '0.2rem' }}>Valeur totale : {format(pointValue)}</div>
+        <div style={{ marginBottom: '0.2rem' }}>Solde de tr�sorerie : {format(cashForTooltip)}</div>
+        <div style={{ marginBottom: '0.2rem' }}>Valeur hors tr�sorerie : {format(assetValue)}</div>
+        <div style={{ marginBottom: '0.2rem' }}>Capital investi : {format(investedValue)}</div>
+        <div style={{ color: deltaColor }}>
+          Plus/moins-value : {delta >= 0 ? '+' : ''}
+          {format(delta)}
+        </div>
       </div>
     );
   };
@@ -106,7 +182,7 @@ export const PortfolioSection = ({ portfolio, refreshTrigger }: PortfolioSection
       >
         <div>
           <h3 style={{ margin: 0, fontSize: '1.3rem' }}>{portfolio.name}</h3>
-          <div style={{ color: '#94a3b8', fontSize: '0.9rem' }}>Catégorie : {portfolio.category}</div>
+          <div style={{ color: '#94a3b8', fontSize: '0.9rem' }}>Cat?gorie : {portfolio.category}</div>
         </div>
         <div style={{ display: 'flex', gap: '1.5rem', flexWrap: 'wrap' }}>
           <div>
@@ -144,7 +220,7 @@ export const PortfolioSection = ({ portfolio, refreshTrigger }: PortfolioSection
           Chargement de l'historique...
         </div>
       )}
-      {!detailQuery.isLoading && priceHistory.length > 0 && (
+      {!detailQuery.isLoading && chartData.length > 0 && (
         <div
           style={{
             borderRadius: '0.75rem',
@@ -155,13 +231,42 @@ export const PortfolioSection = ({ portfolio, refreshTrigger }: PortfolioSection
           <h4 style={{ margin: '0 0 0.75rem', fontSize: '1rem', color: '#e2e8f0' }}>
             Evolution de la valorisation
           </h4>
+          <div
+            style={{
+              display: 'flex',
+              gap: '0.5rem',
+              marginBottom: '0.75rem',
+              flexWrap: 'wrap',
+            }}
+          >
+            {(['1M', '3M', '6M', 'ALL'] as const).map((rangeKey) => (
+              <button
+                key={rangeKey}
+                type="button"
+                onClick={() => setDateRange(rangeKey)}
+                style={{
+                  border: 'none',
+                  borderRadius: '999px',
+                  padding: '0.3rem 0.8rem',
+                  fontSize: '0.75rem',
+                  cursor: 'pointer',
+                  background:
+                    dateRange === rangeKey ? 'rgba(59, 130, 246, 0.35)' : 'rgba(30, 41, 59, 0.65)',
+                  color: dateRange === rangeKey ? '#e0f2fe' : '#cbd5f5',
+                  transition: 'background 0.2s ease, color 0.2s ease',
+                }}
+              >
+                {rangeKey === 'ALL' ? 'Tout' : rangeKey}
+              </button>
+            ))}
+          </div>
           <div style={{ width: '100%', height: 220 }}>
             <ResponsiveContainer>
-              <AreaChart data={priceHistory} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
+              <ComposedChart data={chartData} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
                 <defs>
                   <linearGradient id={`portfolioTrend-${portfolio.id}`} x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#60a5fa" stopOpacity={0.55} />
-                    <stop offset="100%" stopColor="#60a5fa" stopOpacity={0.05} />
+                    <stop offset="0%" stopColor="#60a5fa" stopOpacity={0.35} />
+                    <stop offset="100%" stopColor="#60a5fa" stopOpacity={0.08} />
                   </linearGradient>
                 </defs>
                 <XAxis
@@ -184,27 +289,33 @@ export const PortfolioSection = ({ portfolio, refreshTrigger }: PortfolioSection
                   cursor={{ stroke: 'rgba(96, 165, 250, 0.35)', strokeWidth: 1 }}
                   content={renderPortfolioTooltip}
                 />
-                {portfolio.investedValue > 0 && (
-                  <ReferenceLine
-                    y={portfolio.investedValue}
-                    stroke="rgba(248, 113, 113, 0.65)"
-                    strokeDasharray="4 4"
-                    label={{
-                      position: 'right',
-                      value: `Investi ${format(portfolio.investedValue)}`,
-                      fill: '#f8fafc',
-                      fontSize: 10,
-                    }}
-                  />
-                )}
+                <Legend
+                  wrapperStyle={{ color: '#e2e8f0', fontSize: '0.8rem' }}
+                  formatter={(_, entry) =>
+                    entry?.dataKey === 'invested' ? 'Capital investi' : 'Valeur totale'
+                  }
+                />
                 <Area
                   type="monotone"
                   dataKey="value"
+                  name="Valeur totale"
                   stroke="#60a5fa"
                   fill={`url(#portfolioTrend-${portfolio.id})`}
                   strokeWidth={1.8}
                 />
-              </AreaChart>
+                <Line
+                  type="monotone"
+                  dataKey="invested"
+                  name="Capital investi"
+                  stroke="#f8fafc"
+                  strokeWidth={1.1}
+                  dot={false}
+                  strokeDasharray="5 5"
+                  strokeOpacity={0.9}
+                  connectNulls
+                  activeDot={{ r: 4.5, stroke: '#f8fafc', fill: '#0f172a', strokeWidth: 1.5 }}
+                />
+              </ComposedChart>
             </ResponsiveContainer>
           </div>
         </div>
@@ -221,13 +332,13 @@ export const PortfolioSection = ({ portfolio, refreshTrigger }: PortfolioSection
           }}
         >
           <div>
-            <div style={{ fontSize: '0.9rem', color: '#94a3b8' }}>Trésorerie disponible</div>
+            <div style={{ fontSize: '0.9rem', color: '#94a3b8' }}>Tr\u00e9sorerie disponible</div>
             <div style={{ fontSize: '1.2rem', fontWeight: 600, color: '#e2e8f0' }}>{format(cashValue)}</div>
           </div>
           <div style={{ textAlign: 'right', color: '#64748b', fontSize: '0.75rem' }}>
             {cashUpdatedAt && (
               <>
-                Mise à jour&nbsp;:{' '}
+                Mise ? jour&nbsp;:{' '}
                 <span style={{ color: '#cbd5f5' }}>{new Date(cashUpdatedAt).toLocaleString('fr-FR')}</span>
               </>
             )}
@@ -238,3 +349,5 @@ export const PortfolioSection = ({ portfolio, refreshTrigger }: PortfolioSection
     </div>
   );
 };
+
+
