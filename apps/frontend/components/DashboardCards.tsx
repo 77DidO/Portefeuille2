@@ -17,7 +17,7 @@ const formatCurrency = (value: number) =>
 const computeGlobalMetrics = (portfolios: PortfolioSummary[]) => {
   const totalValue = portfolios.reduce((acc, p) => acc + p.totalValue, 0);
   const investedValue = portfolios.reduce((acc, p) => acc + p.investedValue, 0);
-  const gainLoss = totalValue - investedValue;
+  const gainLoss = portfolios.reduce((acc, p) => acc + p.gainLossValue, 0);
   const gainLossPercentage = investedValue !== 0 ? (gainLoss / investedValue) * 100 : 0;
   const cashTotal = portfolios
     .flatMap((portfolio) => portfolio.assets)
