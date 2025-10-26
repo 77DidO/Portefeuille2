@@ -14,6 +14,7 @@ interface ParsedRow {
   transactionType: TransactionType;
   source: string;
   fee?: number | null;
+  isSnapshot?: boolean;
 }
 
 const normaliseNumber = (value: string | number | null | undefined): number => {
@@ -69,8 +70,11 @@ const detectTransactionType = (raw: string | undefined): TransactionType => {
 
 type CsvRecord = Record<string, string>;
 
-const normaliseText = (value: string): string =>
-  value
+const normaliseText = (value: string | null | undefined): string => {
+  if (value === null || value === undefined) {
+    return '';
+  }
+  return value
     .trim()
     .toLowerCase()
     .replace(/[\u2018\u2019]/g, "'")
@@ -79,6 +83,7 @@ const normaliseText = (value: string): string =>
     .replace(/[^a-z0-9'\s]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
+};
 
 const normaliseHeaders = (record: CsvRecord): CsvRecord => {
   const normalised: CsvRecord = {};
@@ -106,7 +111,13 @@ const stripPrelude = (csv: string): string => {
     if (!hasDelimiter) return false;
     const normalised = normaliseText(trimmed);
     if (!normalised) return false;
-    return normalised.includes('date');
+    if (normalised.includes('date')) {
+      return true;
+    }
+    if (normalised.includes('nom') && normalised.includes('isin')) {
+      return true;
+    }
+    return false;
   });
   const relevantLines = startIndex >= 0 ? lines.slice(startIndex) : lines;
   return relevantLines.join('\n');
@@ -115,7 +126,7 @@ const stripPrelude = (csv: string): string => {
 type CsvParser = (records: CsvRecord[]) => Promise<ParsedRow[]> | ParsedRow[];
 
 const PEA_CASH_SYMBOL = '_PEA_CASH';
-const PEA_CASH_NAME = 'PEA - Liquidit?s';
+const PEA_CASH_NAME = 'PEA - Liquidites';
 
 const parseCreditAgricole = (records: CsvRecord[]): ParsedRow[] => {
   const transactions: ParsedRow[] = [];
@@ -132,6 +143,7 @@ const parseCreditAgricole = (records: CsvRecord[]): ParsedRow[] => {
     const name =
       row['libelle'] ||
       row['nom'] ||
+      row['valeur'] ||
       row['designation'] ||
       symbol ||
       'Valeur Credit Agricole';
@@ -171,6 +183,19 @@ const parseCreditAgricole = (records: CsvRecord[]): ParsedRow[] => {
 
     const date = dateRaw ? normaliseDate(dateRaw) : new Date();
 
+    const isSnapshotRow =
+      !dateRaw &&
+      quantity !== 0 &&
+      Boolean(
+        row['valorisation en euro'] ||
+          row['valorisationeneuro'] ||
+          row['valorisation'] ||
+          row['cours'] ||
+          row['prix de revient'] ||
+          row['prixderevient'],
+      );
+    const rowSource = isSnapshotRow ? 'credit-agricole-snapshot' : 'credit-agricole';
+
     const operation = normaliseText(
       row['operation'] ||
         row['typedoperation'] ||
@@ -207,8 +232,9 @@ const parseCreditAgricole = (records: CsvRecord[]): ParsedRow[] => {
         price: effectivePrice,
         quantity,
         transactionType,
-        source: 'credit-agricole',
+        source: rowSource,
         fee,
+        isSnapshot: isSnapshotRow || undefined,
       });
     }
 
@@ -630,7 +656,7 @@ export const importCsv = async (portfolioId: number, source: keyof typeof parser
     skip_records_with_error: true,
   }) as CsvRecord[];
   const parsedRows = await parser(records);
-  const rows = parsedRows.filter((row) => row.quantity !== 0 && row.price !== 0);
+  const rows = parsedRows.filter((row) => row.quantity !== 0 && (row.price !== 0 || row.isSnapshot));
   const portfolio = await prisma.portfolio.findUnique({ where: { id: portfolioId } });
   if (!portfolio) {
     throw new Error('Portefeuille introuvable');
@@ -646,20 +672,88 @@ export const importCsv = async (portfolioId: number, source: keyof typeof parser
         portfolioId,
         symbol: row.symbol,
       },
+      include: {
+        transactions: true,
+      },
     });
-    const targetAsset = asset
-      ? asset
-      : await prisma.asset.create({
+    const transactionsForAsset = asset?.transactions ?? [];
+    let targetAsset =
+      asset ??
+      (await prisma.asset.create({
+        data: {
+          portfolioId,
+          symbol: row.symbol,
+          name: row.name,
+          assetType: row.type,
+        },
+      }));
+
+    if (row.name?.trim()) {
+      const desiredName = row.name.trim();
+      const currentName = targetAsset.name?.trim() ?? '';
+      const symbolUpper = (targetAsset.symbol ?? '').trim().toUpperCase();
+      if (!currentName || currentName.toUpperCase() === symbolUpper) {
+        targetAsset = await prisma.asset.update({
+          where: { id: targetAsset.id },
+          data: { name: desiredName },
+        });
+      }
+    }
+
+    const positivePrice = row.price > 0 ? row.price : 0;
+
+    if (row.isSnapshot) {
+      const snapshotPrice = positivePrice > 0 ? positivePrice : 1;
+      const netQuantity = transactionsForAsset.reduce((acc, tx) => {
+        const qty = Number(tx.quantity);
+        if (!Number.isFinite(qty)) {
+          return acc;
+        }
+        return tx.type === 'BUY' ? acc + qty : acc - qty;
+      }, 0);
+      const delta = Number((row.quantity - netQuantity).toFixed(8));
+      if (Math.abs(delta) > 1e-6) {
+        const adjustmentType: TransactionType = delta > 0 ? 'BUY' : 'SELL';
+        const adjustmentQuantity = Math.abs(delta);
+        const adjustmentPrice = snapshotPrice;
+        await prisma.transaction.create({
           data: {
-            portfolioId,
-            symbol: row.symbol,
-            name: row.name,
-            assetType: row.type,
+            assetId: targetAsset.id,
+            type: adjustmentType,
+            quantity: adjustmentQuantity.toString(),
+            price: adjustmentPrice.toString(),
+            date: row.date,
+            source: row.source,
+            note: 'snapshot-adjustment',
           },
         });
+        createdCount += 1;
+      }
+
+      await prisma.pricePoint.upsert({
+        where: {
+          assetId_date: {
+            assetId: targetAsset.id,
+            date: row.date,
+          },
+        },
+        update: {
+          price: snapshotPrice.toString(),
+          source: row.source,
+        },
+        create: {
+          assetId: targetAsset.id,
+          date: row.date,
+          price: snapshotPrice.toString(),
+          source: row.source,
+        },
+      });
+      touchedAssetIds.add(targetAsset.id);
+      continue;
+    }
 
     const quantityString = row.quantity.toString();
-    const priceString = row.price.toString();
+    const priceString = positivePrice.toString();
     const feeString = row.fee !== undefined && row.fee !== null && row.fee !== 0 ? row.fee.toString() : null;
     const existingTransaction = await prisma.transaction.findFirst({
       where: {
