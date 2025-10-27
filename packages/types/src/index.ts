@@ -63,6 +63,24 @@ export interface TransactionDTO {
   note?: string | null;
 }
 
+export interface TransactionHistoryItem {
+  id: number;
+  assetId: number;
+  assetName: string | null;
+  assetSymbol: string | null;
+  assetType: AssetType | null;
+  portfolioId: number | null;
+  portfolioName: string | null;
+  portfolioCategory: PortfolioCategory | null;
+  type: TransactionType;
+  quantity: number;
+  price: number;
+  fee?: number | null;
+  date: string;
+  source?: string | null;
+  note?: string | null;
+}
+
 export interface AssetDetail extends AssetSummary {
   transactions: TransactionDTO[];
   priceHistory: TrendPoint[];

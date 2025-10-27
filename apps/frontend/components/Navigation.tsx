@@ -35,6 +35,21 @@ const ImportIcon = (props: SVGProps<SVGSVGElement>) => (
   </svg>
 );
 
+const HistoryIcon = (props: SVGProps<SVGSVGElement>) => (
+  <svg viewBox="0 0 24 24" {...props}>
+    <g
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="M12 7.5v5l3.5 2.1" />
+    </g>
+  </svg>
+);
+
 const SettingsIcon = (props: SVGProps<SVGSVGElement>) => (
   <svg viewBox="0 0 24 24" {...props}>
     <g fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
@@ -52,6 +67,7 @@ const SettingsIcon = (props: SVGProps<SVGSVGElement>) => (
 
 const links: NavLink[] = [
   { href: '/', label: 'Tableau de bord', Icon: DashboardIcon },
+  { href: '/history', label: 'Historique', Icon: HistoryIcon },
   { href: '/import', label: 'Imports CSV', Icon: ImportIcon },
   { href: '/settings', label: 'Configuration', Icon: SettingsIcon },
 ];

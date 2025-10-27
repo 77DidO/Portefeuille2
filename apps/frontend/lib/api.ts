@@ -9,6 +9,7 @@ import type {
   RefreshAssetsResponse,
   BackfillPriceHistoryResponse,
   AssetStaleness,
+  TransactionHistoryItem,
 } from '@portefeuille/types';
 import { API_URL } from './config';
 
@@ -81,5 +82,27 @@ export const api = {
     request<void>(`/portfolios/${id}`, {
       method: 'DELETE' satisfies HttpMethod,
     }),
+  getTransactions: (params?: {
+    assetId?: number;
+    portfolioId?: number;
+    type?: 'BUY' | 'SELL';
+    portfolioCategory?: string;
+    assetType?: string;
+    source?: string;
+    search?: string;
+    limit?: number;
+  }) => {
+    const searchParams = new URLSearchParams();
+    if (params) {
+      Object.entries(params).forEach(([key, value]) => {
+        if (value === undefined || value === null || value === '') {
+          return;
+        }
+        searchParams.set(key, String(value));
+      });
+    }
+    const query = searchParams.toString();
+    return request<TransactionHistoryItem[]>(`/transactions${query ? `?${query}` : ''}`);
+  },
 };
 

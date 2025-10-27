@@ -11,6 +11,8 @@
   "dependencies": {
     "@portefeuille/types": "file:../../packages/types",
     "@tanstack/react-query": "^5.51.9",
+    "@types/canvas-confetti": "^1.9.0",
+    "canvas-confetti": "^1.9.4",
     "clsx": "^2.1.1",
     "next": "^14.2.5",
     "react": "^18.3.1",
