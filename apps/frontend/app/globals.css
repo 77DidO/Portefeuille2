@@ -156,7 +156,7 @@ a {
   background: rgba(15, 23, 42, 0.82);
   border: 1px solid rgba(148, 163, 184, 0.12);
   border-radius: 12px;
-  padding: 1.1rem 1.2rem;
+  padding: 0.8rem 0.9rem;
   box-shadow: 0 16px 50px -40px rgba(15, 23, 42, 0.9);
   backdrop-filter: blur(16px);
   transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;

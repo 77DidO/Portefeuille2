@@ -153,10 +153,10 @@ export const DashboardCards = ({
         className="card"
         style={{
           gridColumn: 'span 12',
-          padding: '1.25rem',
+          padding: '0.95rem',
           display: 'flex',
           flexDirection: 'column',
-          gap: '1.25rem',
+          gap: '1rem',
         }}
       >
         <div
@@ -188,7 +188,7 @@ export const DashboardCards = ({
             style={{
               display: 'inline-flex',
               alignItems: 'center',
-              gap: '0.75rem',
+              gap: '0.65rem',
             }}
           >
             {onRefresh && (
@@ -202,13 +202,13 @@ export const DashboardCards = ({
                 style={{
                   display: 'inline-flex',
                   alignItems: 'center',
-                  gap: '0.45rem',
+                  gap: '0.35rem',
                   border: '1px solid rgba(96, 165, 250, 0.45)',
-                  background: 'rgba(37, 99, 235, 0.22)',
+                  background: 'rgba(37, 99, 235, 0.18)',
                   color: '#e0f2fe',
-                  padding: '0.45rem 1rem',
+                  padding: '0.35rem 0.75rem',
                   borderRadius: '999px',
-                  fontSize: '0.8rem',
+                  fontSize: '0.7rem',
                   fontWeight: 600,
                   cursor: isRefreshing ? 'not-allowed' : 'pointer',
                   opacity: isRefreshing ? 0.6 : 1,
@@ -217,8 +217,8 @@ export const DashboardCards = ({
                 title="Actualiser les valorisations"
               >
                 <svg
-                  width="16"
-                  height="16"
+                  width="14"
+                  height="14"
                   viewBox="0 0 20 20"
                   fill="none"
                   xmlns="http://www.w3.org/2000/svg"
@@ -260,9 +260,9 @@ export const DashboardCards = ({
               style={{
                 display: 'inline-flex',
                 alignItems: 'center',
-                gap: '0.35rem',
+                gap: '0.3rem',
                 color: '#cbd5f5',
-                fontSize: '0.85rem',
+                fontSize: '0.8rem',
               }}
             >
               {chartsExpanded ? 'Masquer analyse' : 'Afficher analyse'}
@@ -288,28 +288,28 @@ export const DashboardCards = ({
         >
           {overviewMetrics.map((metric) => {
             const valueStyle = {
-              fontSize: '1.15rem',
+              fontSize: '1.05rem',
               fontWeight: 600,
-              marginTop: '0.25rem',
+              marginTop: '0.2rem',
               color: metric.valueClass ? undefined : '#f8fafc',
             } as const;
             return (
               <div
                 key={metric.key}
                 style={{
-                  padding: '0.9rem',
-                  borderRadius: '12px',
+                  padding: '0.7rem',
+                  borderRadius: '10px',
                   background: 'rgba(15, 23, 42, 0.62)',
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '0.85rem',
+                  gap: '0.7rem',
                 }}
               >
                 <span
                   aria-hidden="true"
                   style={{
-                    width: '2.3rem',
-                    height: '2.3rem',
+                    width: '2rem',
+                    height: '2rem',
                     borderRadius: '999px',
                     display: 'inline-flex',
                     alignItems: 'center',
@@ -622,9 +622,9 @@ export const DashboardCards = ({
                 </div>
                 <div
                   style={{
-                    padding: '1rem 1.2rem 1.15rem',
+                    padding: '0.75rem 0.95rem 0.9rem',
                     display: 'grid',
-                    gap: '1rem 1.1rem',
+                    gap: '0.85rem 1rem',
                     gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
                     alignItems: 'start',
                     flex: '1 1 auto',
@@ -725,7 +725,7 @@ export const DashboardCards = ({
               borderRadius: '1rem',
               border: '1px solid rgba(148, 163, 184, 0.12)',
               background: 'rgba(15, 23, 42, 0.55)',
-              padding: '1.35rem',
+              padding: '0.95rem',
               boxShadow: '0 18px 35px rgba(2, 6, 23, 0.4)',
               display: 'flex',
               flexDirection: 'column',

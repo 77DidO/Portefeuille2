@@ -158,8 +158,8 @@ export const PortfolioSection = ({ portfolio, refreshTrigger }: PortfolioSection
       >
         <div style={{ color: '#94a3b8', marginBottom: '0.3rem' }}>{labelValue}</div>
         <div style={{ marginBottom: '0.2rem' }}>Valeur totale : {format(pointValue)}</div>
-        <div style={{ marginBottom: '0.2rem' }}>Solde de tr�sorerie : {format(cashForTooltip)}</div>
-        <div style={{ marginBottom: '0.2rem' }}>Valeur hors tr�sorerie : {format(assetValue)}</div>
+        <div style={{ marginBottom: '0.2rem' }}>Solde de tresorerie : {format(cashForTooltip)}</div>
+        <div style={{ marginBottom: '0.2rem' }}>Valeur hors tresorerie : {format(assetValue)}</div>
         <div style={{ marginBottom: '0.2rem' }}>Capital investi : {format(investedValue)}</div>
         <div style={{ color: deltaColor }}>
           Plus/moins-value : {delta >= 0 ? '+' : ''}
@@ -183,7 +183,7 @@ export const PortfolioSection = ({ portfolio, refreshTrigger }: PortfolioSection
       {detailQuery.isLoading && (
         <div
           style={{
-            padding: '1.5rem',
+            padding: '0.9rem',
             borderRadius: '0.75rem',
             background: 'rgba(15, 23, 42, 0.45)',
             color: '#94a3b8',
@@ -199,7 +199,7 @@ export const PortfolioSection = ({ portfolio, refreshTrigger }: PortfolioSection
             flex: '1 1 auto',
             borderRadius: '0.75rem',
             background: 'rgba(15, 23, 42, 0.45)',
-            padding: '1rem',
+            padding: '0.75rem',
             minHeight: 280,
             display: 'flex',
             flexDirection: 'column',
@@ -301,5 +301,7 @@ export const PortfolioSection = ({ portfolio, refreshTrigger }: PortfolioSection
     </div>
   );
 };
+
+
 
 
