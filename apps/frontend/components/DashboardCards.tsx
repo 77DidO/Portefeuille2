@@ -5,10 +5,16 @@ import type { PortfolioSummary } from '@portefeuille/types';
 import clsx from 'clsx';
 import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip } from 'recharts';
 
+import { PortfolioSection } from './PortfolioSection';
+
 interface DashboardCardsProps {
   portfolios: PortfolioSummary[];
   onSelect: (portfolioId: number) => void;
   selectedPortfolioId?: number | null;
+  selectedPortfolio?: PortfolioSummary | null;
+  refreshTrigger?: number | null;
+  onRefresh?: (portfolioId?: number) => void | Promise<void>;
+  isRefreshing?: boolean;
 }
 
 const formatCurrency = (value: number) =>
@@ -36,9 +42,24 @@ const categoryLabel: Record<PortfolioSummary['category'], string> = {
   OTHER: 'Autre',
 };
 
+const categoryColor: Record<PortfolioSummary['category'], string> = {
+  GLOBAL: '#38bdf8',
+  CRYPTO: '#f97316',
+  PEA: '#34d399',
+  OTHER: '#a855f7',
+};
+
 const chartPalette = ['#38bdf8', '#34d399', '#facc15', '#f472b6', '#a855f7', '#f97316', '#22d3ee', '#f87171'];
 
-export const DashboardCards = ({ portfolios, onSelect, selectedPortfolioId }: DashboardCardsProps) => {
+export const DashboardCards = ({
+  portfolios,
+  onSelect,
+  selectedPortfolioId,
+  selectedPortfolio,
+  refreshTrigger,
+  onRefresh,
+  isRefreshing = false,
+}: DashboardCardsProps) => {
   const visiblePortfolios = portfolios.filter(
     (portfolio) => portfolio.category !== 'GLOBAL' && portfolio.assets.length > 0,
   );
@@ -50,6 +71,9 @@ export const DashboardCards = ({ portfolios, onSelect, selectedPortfolioId }: Da
   );
   const cashTotal = cashFromSummary > 0 ? cashFromSummary : cashFromAssets;
   const [chartsExpanded, setChartsExpanded] = useState(false);
+  const portfolioForDetail =
+    selectedPortfolio ??
+    (selectedPortfolioId ? visiblePortfolios.find((portfolio) => portfolio.id === selectedPortfolioId) ?? null : null);
 
   return (
     <section className="dashboard-grid" style={{ marginBottom: '2rem', gap: '1.5rem' }}>
@@ -106,7 +130,7 @@ export const DashboardCards = ({ portfolios, onSelect, selectedPortfolioId }: Da
                 transform: chartsExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
               }}
             >
-              ▼
+              ?
             </span>
           </span>
         </div>
@@ -374,94 +398,278 @@ export const DashboardCards = ({ portfolios, onSelect, selectedPortfolioId }: Da
         )}
       </div>
 
-      <div className="card" style={{ gridColumn: 'span 12', padding: '1.25rem' }}>
+      <div
+        style={{
+          display: 'grid',
+          gap: '1.5rem',
+          gridTemplateColumns: '360px minmax(0, 1fr)',
+          alignItems: 'stretch',
+          width: '100%',
+          minHeight: 0,
+          gridColumn: 'span 12',
+        }}
+      >
         <div
           style={{
             display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            marginBottom: '0.75rem',
+            flexDirection: 'column',
+            gap: '0.85rem',
+            alignItems: 'stretch',
+            width: '100%',
           }}
         >
-          <h2 style={{ margin: 0 }}>Vos portefeuilles</h2>
-          <span style={{ color: '#94a3b8', fontSize: '0.8rem' }}>
-            Cliquez sur un portefeuille pour voir le détail
-          </span>
-        </div>
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.9rem' }}>
-            <thead>
-              <tr style={{ textAlign: 'left', color: '#94a3b8' }}>
-                <th style={{ padding: '0.5rem 0.75rem' }}>Nom</th>
-                <th style={{ padding: '0.5rem 0.75rem' }}>Catégorie</th>
-                <th style={{ padding: '0.5rem 0.75rem', textAlign: 'right' }}>Valeur</th>
-                <th style={{ padding: '0.5rem 0.75rem', textAlign: 'right' }}>Investi</th>
-                <th style={{ padding: '0.5rem 0.75rem', textAlign: 'right' }}>Trésorerie</th>
-                <th style={{ padding: '0.5rem 0.75rem', textAlign: 'right' }}>P/L</th>
-                <th style={{ padding: '0.5rem 0.75rem', textAlign: 'right' }}>P/L %</th>
-                <th style={{ padding: '0.5rem 0.75rem', textAlign: 'right' }}>Actifs</th>
-              </tr>
-            </thead>
-            <tbody>
-              {visiblePortfolios.map((portfolio) => {
-                const gainClass =
-                  portfolio.gainLossValue === 0 ? '' : portfolio.gainLossValue > 0 ? 'positive' : 'negative';
-                const gainPercentage =
-                  portfolio.investedValue !== 0 ? (portfolio.gainLossValue / portfolio.investedValue) * 100 : 0;
-                const isSelected = selectedPortfolioId === portfolio.id;
-                const trackedAssetCount = portfolio.assets.filter((asset) => {
-                  const symbol = asset.symbol?.toUpperCase?.() ?? '';
-                  return symbol !== 'PEA_CASH' && symbol !== '_PEA_CASH' && symbol !== 'CASH';
-                }).length;
-                return (
-                  <tr
-                    key={portfolio.id}
-                    onClick={() => onSelect(portfolio.id)}
-                    style={{
-                      cursor: 'pointer',
-                      backgroundColor: isSelected ? 'rgba(59, 130, 246, 0.15)' : 'transparent',
-                      borderTop: '1px solid rgba(148, 163, 184, 0.1)',
-                    }}
-                  >
-                    <td style={{ padding: '0.65rem 0.75rem', fontWeight: 600, color: '#e2e8f0' }}>
+          {visiblePortfolios.map((portfolio) => {
+            const gainClass =
+              portfolio.gainLossValue === 0 ? '' : portfolio.gainLossValue > 0 ? 'positive' : 'negative';
+            const gainPercentage =
+              portfolio.investedValue !== 0 ? (portfolio.gainLossValue / portfolio.investedValue) * 100 : 0;
+            const isSelected = selectedPortfolioId === portfolio.id;
+            const trackedAssetCount = portfolio.assets.filter((asset) => {
+              const symbol = asset.symbol?.toUpperCase?.() ?? '';
+              return symbol !== 'PEA_CASH' && symbol !== '_PEA_CASH' && symbol !== 'CASH';
+            }).length;
+            return (
+              <div
+                key={portfolio.id}
+                role="button"
+                tabIndex={0}
+                aria-pressed={isSelected}
+                onClick={() => onSelect(portfolio.id)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    onSelect(portfolio.id);
+                  }
+                }}
+                style={{
+                  position: 'relative',
+                  cursor: 'pointer',
+                  borderRadius: '1rem',
+                  background: isSelected ? 'rgba(12, 20, 36, 0.88)' : 'rgba(15, 23, 42, 0.72)',
+                  border: isSelected ? '1px solid rgba(96, 165, 250, 0.55)' : '1px solid rgba(148, 163, 184, 0.12)',
+                  boxShadow: isSelected
+                    ? '0 18px 32px rgba(37, 99, 235, 0.25)'
+                    : '0 12px 28px rgba(2, 6, 23, 0.5)',
+                  outline: 'none',
+                  overflow: 'hidden',
+                  transition: 'border 0.2s ease, background 0.2s ease, box-shadow 0.2s ease',
+                  display: 'flex',
+                  flexDirection: 'column',
+                }}
+              >
+                <div
+                  style={{
+                    padding: '0.95rem 1.2rem 0.85rem',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: '0.85rem',
+                    background: `linear-gradient(120deg, ${categoryColor[portfolio.category]}30, rgba(15, 23, 42, 0.96))`,
+                    borderBottom: '1px solid rgba(148, 163, 184, 0.12)',
+                  }}
+                >
+                  <div>
+                    <div
+                      style={{
+                        fontSize: '1.1rem',
+                        fontWeight: 700,
+                        color: '#f8fafc',
+                        letterSpacing: '0.01em',
+                      }}
+                    >
                       {portfolio.name}
-                    </td>
-                    <td style={{ padding: '0.65rem 0.75rem', color: '#94a3b8' }}>
+                    </div>
+                    <div
+                      style={{
+                        fontSize: '0.6rem',
+                        color: '#cbd5f5',
+                        opacity: 0.7,
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.12em',
+                        marginTop: '0.35rem',
+                      }}
+                    >
+                      {trackedAssetCount} actif{trackedAssetCount > 1 ? 's' : ''} suivis
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
+                    {onRefresh && (
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onRefresh(portfolio.id);
+                        }}
+                        disabled={isRefreshing}
+                        style={{
+                          border: '1px solid rgba(96, 165, 250, 0.45)',
+                        background: 'rgba(37, 99, 235, 0.25)',
+                        color: '#e0f2fe',
+                        padding: '0.32rem 0.8rem',
+                        borderRadius: '999px',
+                        fontSize: '0.65rem',
+                        fontWeight: 600,
+                        cursor: isRefreshing ? 'not-allowed' : 'pointer',
+                        opacity: isRefreshing ? 0.6 : 1,
+                        transition: 'background 0.2s ease, border 0.2s ease, opacity 0.2s ease',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                          gap: '0.35rem',
+                        }}
+                      >
+                        {isRefreshing ? 'Actualisation...' : 'Actualiser'}
+                      </button>
+                    )}
+                    <span
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '0.4rem',
+                        padding: '0.35rem 0.85rem',
+                        borderRadius: '999px',
+                        fontSize: '0.65rem',
+                        fontWeight: 600,
+                        backgroundColor: `${categoryColor[portfolio.category]}1A`,
+                        color: '#f8fafc',
+                        border: `1px solid ${categoryColor[portfolio.category]}33`,
+                        boxShadow: `inset 0 0 0 1px ${categoryColor[portfolio.category]}24`,
+                      }}
+                    >
+                      <span
+                        style={{
+                          width: '0.6rem',
+                          height: '0.6rem',
+                          borderRadius: '999px',
+                          backgroundColor: categoryColor[portfolio.category],
+                          boxShadow: '0 0 8px rgba(15, 23, 42, 0.8)',
+                        }}
+                      />
                       {categoryLabel[portfolio.category]}
-                    </td>
-                    <td style={{ padding: '0.65rem 0.75rem', textAlign: 'right', color: '#e2e8f0' }}>
-                      {formatCurrency(portfolio.totalValue)}
-                    </td>
-                    <td style={{ padding: '0.65rem 0.75rem', textAlign: 'right', color: '#94a3b8' }}>
-                      {formatCurrency(portfolio.investedValue)}
-                    </td>
-                    <td style={{ padding: '0.65rem 0.75rem', textAlign: 'right', color: '#94a3b8' }}>
-                      {formatCurrency(portfolio.cashValue ?? 0)}
-                    </td>
-                    <td
-                      style={{ padding: '0.65rem 0.75rem', textAlign: 'right' }}
-                      className={clsx('delta', gainClass)}
-                    >
-                      {portfolio.gainLossValue >= 0 ? '+' : ''}
-                      {formatCurrency(portfolio.gainLossValue)}
-                    </td>
-                    <td
-                      style={{ padding: '0.65rem 0.75rem', textAlign: 'right' }}
-                      className={clsx('delta', gainClass)}
-                    >
-                      {gainPercentage >= 0 ? '+' : ''}
-                      {gainPercentage.toFixed(2)}%
-                    </td>
-                    <td style={{ padding: '0.65rem 0.75rem', textAlign: 'right', color: '#94a3b8' }}>
-                      {trackedAssetCount}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                    </span>
+                  </div>
+                </div>
+                <div
+                  style={{
+                    padding: '1rem 1.2rem 1.15rem',
+                    display: 'grid',
+                    gap: '1rem 1.1rem',
+                    gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+                    alignItems: 'start',
+                    flex: '1 1 auto',
+                  }}
+                >
+                  <div>
+                      <div
+                        style={{
+                          color: '#94a3b8',
+                          fontSize: '0.65rem',
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.08em',
+                        }}
+                      >
+                        Valeur totale
+                      </div>
+                      <div style={{ color: '#f8fafc', fontWeight: 700, fontSize: '1.1rem', marginTop: '0.35rem' }}>
+                        {formatCurrency(portfolio.totalValue)}
+                      </div>
+                    </div>
+                    <div>
+                      <div
+                        style={{
+                          color: '#94a3b8',
+                          fontSize: '0.65rem',
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.08em',
+                        }}
+                      >
+                        Investi
+                      </div>
+                      <div style={{ color: '#cbd5f5', fontWeight: 600, fontSize: '1rem', marginTop: '0.35rem' }}>
+                        {formatCurrency(portfolio.investedValue)}
+                      </div>
+                    </div>
+                    <div style={{ gridColumn: 'span 2', display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
+                      <div>
+                        <div
+                          style={{
+                            color: '#94a3b8',
+                            fontSize: '0.65rem',
+                            textTransform: 'uppercase',
+                            letterSpacing: '0.08em',
+                          }}
+                        >
+                          Trésorerie
+                        </div>
+                        <div style={{ color: '#cbd5f5', fontWeight: 600, fontSize: '1rem', marginTop: '0.35rem' }}>
+                          {formatCurrency(portfolio.cashValue ?? 0)}
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', gap: '1.1rem', flexWrap: 'wrap' }}>
+                        <div>
+                          <div
+                            style={{
+                              color: '#94a3b8',
+                              fontSize: '0.6rem',
+                              textTransform: 'uppercase',
+                              letterSpacing: '0.08em',
+                            }}
+                          >
+                            P/L
+                          </div>
+                          <div
+                            className={clsx('delta', gainClass)}
+                            style={{ fontWeight: 600, fontSize: '0.95rem', marginTop: '0.25rem' }}
+                          >
+                            {portfolio.gainLossValue >= 0 ? '+' : ''}
+                            {formatCurrency(portfolio.gainLossValue)}
+                          </div>
+                        </div>
+                        <div>
+                          <div
+                            style={{
+                              color: '#94a3b8',
+                              fontSize: '0.6rem',
+                              textTransform: 'uppercase',
+                              letterSpacing: '0.08em',
+                            }}
+                          >
+                            P/L %
+                          </div>
+                          <div
+                            className={clsx('delta', gainClass)}
+                            style={{ fontWeight: 600, fontSize: '0.95rem', marginTop: '0.25rem' }}
+                          >
+                            {gainPercentage >= 0 ? '+' : ''}
+                            {gainPercentage.toFixed(2)}%
+                          </div>
+                        </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
         </div>
+        {portfolioForDetail && (
+          <div
+            style={{
+              flex: '1 1 auto',
+              width: '100%',
+              minWidth: 0,
+              borderRadius: '1rem',
+              border: '1px solid rgba(148, 163, 184, 0.12)',
+              background: 'rgba(15, 23, 42, 0.55)',
+              padding: '1.35rem',
+              boxShadow: '0 18px 35px rgba(2, 6, 23, 0.4)',
+              display: 'flex',
+              flexDirection: 'column',
+            }}
+          >
+            <PortfolioSection portfolio={portfolioForDetail} refreshTrigger={refreshTrigger} />
+          </div>
+        )}
       </div>
     </section>
   );
 };
+

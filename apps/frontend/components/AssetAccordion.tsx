@@ -31,7 +31,7 @@ const computeTrendMetrics = (trend: AssetSummary['trend']) => {
   const change = last - first;
   const percent = first !== 0 ? (change / first) * 100 : 0;
   const status = Math.abs(percent) < 0.1 ? 'flat' : change > 0 ? 'up' : 'down';
-  return { change, percent, status };
+  return { change, percent, status, first, last };
 };
 
 const buildAssetTooltip =
@@ -206,8 +206,23 @@ export const AssetAccordion = ({ assets, refreshTrigger }: AssetAccordionProps) 
         });
         const lastUpdateDate = asset.lastPriceUpdateAt ? new Date(asset.lastPriceUpdateAt) : null;
         const lastUpdateLabel = lastUpdateDate
-          ? lastUpdateDate.toLocaleString('fr-FR')
+          ? lastUpdateDate.toLocaleString('fr-FR', {
+              day: '2-digit',
+              month: '2-digit',
+              hour: '2-digit',
+              minute: '2-digit',
+            })
           : 'Jamais';
+        const lastUpdateTitle = lastUpdateDate
+          ? `Dernière mise à jour : ${lastUpdateDate.toLocaleString('fr-FR', {
+              day: '2-digit',
+              month: '2-digit',
+              year: 'numeric',
+              hour: '2-digit',
+              minute: '2-digit',
+              second: '2-digit',
+            })}`
+          : 'Jamais mis à jour';
         const isAssetRefreshing = refreshing[asset.id] ?? false;
 
         const deltaClassName = clsx('asset-metrics__delta', {
@@ -239,7 +254,14 @@ export const AssetAccordion = ({ assets, refreshTrigger }: AssetAccordionProps) 
                       Qt globale&nbsp;:<strong>{formatQuantity(asset.quantity)}</strong>
                     </span>
                     {trend ? (
-                      <span className={trendClassName}>
+                      <span
+                        className={trendClassName}
+                        title={`Performance sur la période récente. Cours initial : ${formatCurrency(
+                          trend.first,
+                        )} • Cours actuel : ${formatCurrency(trend.last)} • Variation absolue : ${
+                          trend.change >= 0 ? '+' : ''
+                        }${formatCurrency(trend.change)}`}
+                      >
                         <span>{trendIcon}</span>
                         <span>{`${Math.abs(trend.percent).toFixed(2)}%`}</span>
                       </span>
@@ -259,7 +281,7 @@ export const AssetAccordion = ({ assets, refreshTrigger }: AssetAccordionProps) 
                       </span>
                     </div>
                     <div className="asset-actions">
-                      <div className="asset-updated" title={`Derniere mise a jour : ${lastUpdateLabel}`}>
+                      <div className="asset-updated" title={lastUpdateTitle}>
                         <svg
                           className="asset-updated__icon"
                           viewBox="0 0 20 20"

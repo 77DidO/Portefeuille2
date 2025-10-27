@@ -182,17 +182,18 @@ a {
   color: #f8fafc;
 }
 
-.card .delta {
+.delta {
   font-size: 0.8rem;
   font-weight: 500;
   margin-top: 0.2rem;
+  color: inherit;
 }
 
-.card .delta.positive {
+.delta.positive {
   color: #34d399;
 }
 
-.card .delta.negative {
+.delta.negative {
   color: #f87171;
 }
 

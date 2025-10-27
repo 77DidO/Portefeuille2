@@ -170,43 +170,16 @@ export const PortfolioSection = ({ portfolio, refreshTrigger }: PortfolioSection
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-      <div
-        style={{
-          display: 'flex',
-          flexWrap: 'wrap',
-          justifyContent: 'space-between',
-          alignItems: 'flex-start',
-          gap: '1rem',
-        }}
-      >
-        <div>
-          <h3 style={{ margin: 0, fontSize: '1.3rem' }}>{portfolio.name}</h3>
-          <div style={{ color: '#94a3b8', fontSize: '0.9rem' }}>Cat?gorie : {portfolio.category}</div>
-        </div>
-        <div style={{ display: 'flex', gap: '1.5rem', flexWrap: 'wrap' }}>
-          <div>
-            <div style={{ color: '#94a3b8', fontSize: '0.75rem' }}>Valeur</div>
-            <div style={{ fontSize: '1.1rem', fontWeight: 600 }}>{format(portfolio.totalValue)}</div>
-          </div>
-          <div>
-            <div style={{ color: '#94a3b8', fontSize: '0.75rem' }}>Investi</div>
-            <div style={{ fontSize: '1.1rem', fontWeight: 600 }}>{format(portfolio.investedValue)}</div>
-          </div>
-          <div>
-            <div style={{ color: '#94a3b8', fontSize: '0.75rem' }}>Plus/moins-value</div>
-            <div className={clsx('delta', gainClass)} style={{ fontSize: '1.1rem', fontWeight: 600 }}>
-              {portfolio.gainLossValue >= 0 ? '+' : ''}
-              {format(portfolio.gainLossValue)} ({gainPercentage >= 0 ? '+' : ''}
-              {gainPercentage.toFixed(2)}%)
-            </div>
-          </div>
-          <div>
-            <div style={{ color: '#94a3b8', fontSize: '0.75rem' }}>Actifs suivis</div>
-            <div style={{ fontSize: '1.1rem', fontWeight: 600 }}>{trackedAssetsCount}</div>
-          </div>
-        </div>
-      </div>
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '1rem',
+        width: '100%',
+        minWidth: 0,
+        flex: '1 1 auto',
+      }}
+    >
       {detailQuery.isLoading && (
         <div
           style={{
@@ -223,9 +196,13 @@ export const PortfolioSection = ({ portfolio, refreshTrigger }: PortfolioSection
       {!detailQuery.isLoading && chartData.length > 0 && (
         <div
           style={{
+            flex: '1 1 auto',
             borderRadius: '0.75rem',
             background: 'rgba(15, 23, 42, 0.45)',
             padding: '1rem',
+            minHeight: 280,
+            display: 'flex',
+            flexDirection: 'column',
           }}
         >
           <h4 style={{ margin: '0 0 0.75rem', fontSize: '1rem', color: '#e2e8f0' }}>
@@ -260,7 +237,7 @@ export const PortfolioSection = ({ portfolio, refreshTrigger }: PortfolioSection
               </button>
             ))}
           </div>
-          <div style={{ width: '100%', height: 220 }}>
+          <div style={{ width: '100%', height: '100%', minHeight: 220, flex: '1 1 auto' }}>
             <ResponsiveContainer>
               <ComposedChart data={chartData} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
                 <defs>
@@ -317,31 +294,6 @@ export const PortfolioSection = ({ portfolio, refreshTrigger }: PortfolioSection
                 />
               </ComposedChart>
             </ResponsiveContainer>
-          </div>
-        </div>
-      )}
-      {(cashAsset || cashValue > 0) && (
-        <div
-          style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            padding: '0.9rem 1.1rem',
-            borderRadius: '0.75rem',
-            background: 'rgba(15, 23, 42, 0.65)',
-          }}
-        >
-          <div>
-            <div style={{ fontSize: '0.9rem', color: '#94a3b8' }}>Tr\u00e9sorerie disponible</div>
-            <div style={{ fontSize: '1.2rem', fontWeight: 600, color: '#e2e8f0' }}>{format(cashValue)}</div>
-          </div>
-          <div style={{ textAlign: 'right', color: '#64748b', fontSize: '0.75rem' }}>
-            {cashUpdatedAt && (
-              <>
-                Mise ? jour&nbsp;:{' '}
-                <span style={{ color: '#cbd5f5' }}>{new Date(cashUpdatedAt).toLocaleString('fr-FR')}</span>
-              </>
-            )}
           </div>
         </div>
       )}
