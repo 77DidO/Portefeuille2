@@ -11,6 +11,7 @@
     "build": "npm run build --workspace @portefeuille/types && npm run build --workspace backend && npm run build --workspace frontend",
     "lint": "npm run lint --workspace frontend",
     "format": "node scripts/format.mjs",
+    "test:cache": "node scripts/test-cache.mjs",
     "postinstall": "npm run build --workspace @portefeuille/types"
   },
   "devDependencies": {}

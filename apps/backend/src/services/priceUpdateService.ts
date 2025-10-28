@@ -1,5 +1,7 @@
 import { prisma } from '../prismaClient.js';
 import type { BackfillPriceHistoryResponse } from '@portefeuille/types';
+import { getCachedPrice, cachePrice } from '../utils/cache.js';
+import { getLogger } from '../utils/logger.js';
 
 type Quote = {
   regularMarketPrice?: number;
@@ -395,9 +397,19 @@ const fetchYahooHistoricalPrices = async (symbol: string, fromDate: Date) => {
 };
 
 const fetchQuoteForSymbol = async (symbol: string) => {
+  // Check cache first
+  const cached = await getCachedPrice(`yahoo:${symbol}`);
+  if (cached !== null) {
+    const logger = getLogger();
+    logger.debug({ symbol, cachedPrice: cached }, 'Yahoo price from cache');
+    return { price: cached, priceDate: new Date() };
+  }
+
   try {
     const chartPayload = await fetchYahooChart(symbol);
     if (chartPayload) {
+      // Cache the price
+      await cachePrice(`yahoo:${symbol}`, chartPayload.price);
       return chartPayload;
     }
   } catch {
@@ -411,6 +423,10 @@ const fetchQuoteForSymbol = async (symbol: string) => {
     throw new Error(`Aucun prix disponible pour ${symbol}`);
   }
   const priceDate = timestamp ? new Date(timestamp * 1000) : new Date();
+
+  // Cache the price
+  await cachePrice(`yahoo:${symbol}`, price);
+
   return { price, priceDate };
 };
 
@@ -464,6 +480,14 @@ const detectBinanceCounter = (pair: string) => {
 };
 
 const fetchBinanceTicker = async (pair: string) => {
+  // Check cache first
+  const cached = await getCachedPrice(`binance:${pair}`);
+  if (cached !== null) {
+    const logger = getLogger();
+    logger.debug({ pair, cachedPrice: cached }, 'Binance price from cache');
+    return { price: cached, priceDate: new Date() };
+  }
+
   const url = `${BINANCE_TICKER_URL}${pair}`;
   const response = await fetch(url, { headers: YAHOO_HEADERS });
   if (!response.ok) {
@@ -477,6 +501,10 @@ const fetchBinanceTicker = async (pair: string) => {
   if (!Number.isFinite(price)) {
     throw new Error(`Réponse Binance invalide pour ${pair}`);
   }
+
+  // Cache the price
+  await cachePrice(`binance:${pair}`, price);
+
   return { price, priceDate: new Date() };
 };
 

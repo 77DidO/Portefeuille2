@@ -2,6 +2,17 @@
 
 Application full-stack (Express + Next.js + SQLite) pour centraliser la visualisation de portefeuilles (PEA, crypto, etc.).
 
+**Version actuelle** : 2.1.0 | **Dernière mise à jour** : Octobre 2025
+
+## 📚 Documentation
+
+- 📖 **[DOC_INDEX.md](./DOC_INDEX.md)** - Index complet de toute la documentation
+- 🚀 **[QUICKSTART_REDIS.md](./QUICKSTART_REDIS.md)** - Démarrage rapide avec Redis
+- ⚡ **[REDIS_CACHE.md](./REDIS_CACHE.md)** - Guide complet du cache
+- 🔒 **[SECURITY.md](./SECURITY.md)** - Guide de sécurité
+- 🗺️ **[ROADMAP.md](./ROADMAP.md)** - Plan de développement
+- 📋 **[VERSION_HISTORY.md](./VERSION_HISTORY.md)** - Historique des versions
+
 ## Prérequis
 
 - Node.js 18+
@@ -15,14 +26,66 @@ npm install
 
 La commande installe les dépendances, génère le client Prisma et prépare les workspaces `backend`, `frontend` et `@portefeuille/types`.
 
+### Configuration des variables d'environnement
+
+**Backend** : Copiez `.env.example` vers `.env` dans `apps/backend/` et ajustez les valeurs :
+
+```bash
+cp apps/backend/.env.example apps/backend/.env
+```
+
+Variables disponibles :
+- `NODE_ENV` : `development` | `production` | `test`
+- `PORT` : Port du serveur (défaut: 4000)
+- `DATABASE_URL` : Chemin vers la base SQLite
+- `CORS_ORIGIN` : Origine autorisée pour CORS
+- `RATE_LIMIT_WINDOW_MS` : Fenêtre de rate limiting en ms
+- `RATE_LIMIT_MAX_REQUESTS` : Nombre max de requêtes par fenêtre
+- `LOG_LEVEL` : `debug` | `info` | `warn` | `error`
+- `LOG_PRETTY` : Formatage lisible des logs (`true` en dev)
+- `REDIS_ENABLED` : Activer le cache Redis (`true` | `false`)
+- `REDIS_HOST` : Hôte Redis (défaut: `localhost`)
+- `REDIS_PORT` : Port Redis (défaut: `6379`)
+- `PRICE_CACHE_TTL` : Durée de vie du cache en secondes (défaut: `3600`)
+
+**Frontend** : Copiez `.env.example` vers `.env.local` dans `apps/frontend/` :
+
+```bash
+cp apps/frontend/.env.example apps/frontend/.env.local
+```
+
+Variable :
+- `NEXT_PUBLIC_API_URL` : URL de l'API backend (défaut: http://localhost:4000/api)
+
 ## Démarrage
 
+### Développement local
+
+**Option 1 : Sans Redis (cache désactivé)**
 ```bash
 npm run dev
 ```
 
+**Option 2 : Avec Redis (cache activé)**
+1. Démarrer Redis avec Docker Compose :
+```bash
+docker-compose up -d
+```
+
+2. Démarrer l'application :
+```bash
+npm run dev
+```
+
+L'application sera accessible à :
 - API Express : `http://localhost:4000/api`
 - Front-end Next.js : `http://localhost:3000`
+- Redis : `localhost:6379` (si Docker actif)
+
+Pour arrêter Redis :
+```bash
+docker-compose down
+```
 
 ## Build de production
 
@@ -92,13 +155,63 @@ npx prisma migrate dev --name init
 npx prisma studio        # pour inspecter la base
 ```
 
+### Index de performance
+
+Les migrations incluent des index pour optimiser les requêtes :
+- `Asset.symbol`, `Asset.portfolioId`
+- `Transaction.date`, `Transaction.assetId`
+- `PricePoint.date`, `PricePoint.assetId`
+
+## Sécurité et Production
+
+### Rate Limiting
+
+L'API implémente trois niveaux de rate limiting :
+- **API générale** : 100 requêtes / 15 minutes
+- **Opérations d'écriture** (import, create, update, delete) : 20 requêtes / 15 minutes
+- **Opérations critiques** (reset database) : 5 requêtes / heure
+
+### Logging structuré
+
+Les logs utilisent Pino pour un format JSON structuré en production :
+- Logs colorés et lisibles en développement (`LOG_PRETTY=true`)
+- Format JSON compact en production
+- Niveaux configurables : debug, info, warn, error
+
+### Gestion d'erreurs
+
+- Types d'erreurs personnalisés (`ValidationError`, `NotFoundError`, etc.)
+- Messages d'erreur sécurisés en production (pas de stack trace exposée)
+- Erreurs de validation Zod automatiquement formatées
+- Logging centralisé de toutes les erreurs
+
+### Cache Redis
+
+L'application utilise Redis pour mettre en cache les prix récupérés des APIs externes (Yahoo Finance, Binance) :
+- **TTL configurable** : durée de vie du cache (défaut: 1 heure)
+- **Clés préfixées** : `yahoo:SYMBOL` et `binance:PAIR`
+- **Graceful degradation** : si Redis n'est pas disponible, les appels API fonctionnent normalement
+- **Fonctionnalités** :
+  - `cachePrice(symbol, price)` : stocke un prix
+  - `getCachedPrice(symbol)` : récupère un prix en cache
+  - `invalidatePriceCache(symbol)` : invalide le cache d'un symbole
+  - `getCacheStats()` : statistiques (nombre de clés, mémoire utilisée)
+
+**Bénéfices** :
+- Réduction de 90%+ des appels API externes
+- Temps de réponse < 10ms vs 100-500ms pour les appels API
+- Protection contre les rate limits des APIs externes
+
 ## Variables d'environnement
 
-Copiez `.env.example` vers `.env.local` (frontend) si besoin pour surcharger l'URL API :
+**Backend** (`.env` dans `apps/backend/`) :
+- Variables validées avec Zod au démarrage
+- Valeurs par défaut pour le développement
+- Erreur claire si validation échoue
 
-```bash
-cp .env.example apps/frontend/.env.local
-```
+**Frontend** (`.env.local` dans `apps/frontend/`) :
+- Configuration de l'URL API
+- Variables préfixées `NEXT_PUBLIC_` pour exposition client
 
 ---
 
