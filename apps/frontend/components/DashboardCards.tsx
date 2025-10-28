@@ -4,7 +4,7 @@ import { useState } from 'react';
 import type { PortfolioSummary } from '@portefeuille/types';
 import clsx from 'clsx';
 import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip } from 'recharts';
-
+import { formatCurrency } from '@/lib/formatters';
 import { PortfolioSection } from './PortfolioSection';
 
 interface DashboardCardsProps {
@@ -16,9 +16,6 @@ interface DashboardCardsProps {
   onRefresh?: (portfolioId?: number) => void | Promise<void>;
   isRefreshing?: boolean;
 }
-
-const formatCurrency = (value: number) =>
-  new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(value);
 
 const computeGlobalMetrics = (portfolios: PortfolioSummary[]) => {
   const totalValue = portfolios.reduce((acc, p) => acc + p.totalValue, 0);

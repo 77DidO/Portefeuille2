@@ -1,8 +1,19 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { createAsset, deleteAsset, findStaleAssets, getAssetDetail, updateAsset } from '../services/assetService.js';
-import { refreshAllAssetPrices, refreshAssetPrice, backfillPriceHistory } from '../services/priceUpdateService.js';
+import {
+  createAsset,
+  deleteAsset,
+  findStaleAssets,
+  getAssetDetail,
+  updateAsset,
+} from '../services/assetService.js';
+import {
+  backfillPriceHistory,
+  refreshAllAssetPrices,
+  refreshAssetPrice,
+} from '../services/priceUpdateService.js';
 import { prisma } from '../prismaClient.js';
+import { asyncHandler } from '../middleware/errorHandler.js';
 
 const router = Router();
 
@@ -19,8 +30,9 @@ const refreshAllSchema = z
   })
   .optional();
 
-router.get('/', async (req, res, next) => {
-  try {
+router.get(
+  '/',
+  asyncHandler(async (req, res) => {
     const portfolioId = req.query.portfolioId ? Number(req.query.portfolioId) : undefined;
     const staleDaysParam = req.query.staleDays ?? req.query.stale;
 
@@ -47,84 +59,75 @@ router.get('/', async (req, res, next) => {
       orderBy: { id: 'asc' },
     });
     res.json(assets);
-  } catch (error) {
-    next(error);
-  }
-});
+  }),
+);
 
-router.post('/refresh', async (req, res, next) => {
-  try {
+router.post(
+  '/refresh',
+  asyncHandler(async (req, res) => {
     const payload = refreshAllSchema?.parse(req.body ?? {});
     const portfolioId = payload?.portfolioId;
     const result = await refreshAllAssetPrices(portfolioId);
     res.json(result);
-  } catch (error) {
-    next(error);
-  }
-});
+  }),
+);
 
-router.post('/backfill-history', async (_req, res, next) => {
-  try {
+router.post(
+  '/backfill-history',
+  asyncHandler(async (_req, res) => {
     const result = await backfillPriceHistory();
     res.json(result);
-  } catch (error) {
-    next(error);
-  }
-});
+  }),
+);
 
-router.get('/:id', async (req, res, next) => {
-  try {
+router.get(
+  '/:id',
+  asyncHandler(async (req, res) => {
     const id = Number(req.params.id);
     const asset = await getAssetDetail(id);
     if (!asset) {
-      res.status(404).json({ message: 'Actif non trouvé' });
+      res.status(404).json({ message: 'Actif non trouve' });
       return;
     }
     res.json(asset);
-  } catch (error) {
-    next(error);
-  }
-});
+  }),
+);
 
-router.post('/', async (req, res, next) => {
-  try {
+router.post(
+  '/',
+  asyncHandler(async (req, res) => {
     const payload = assetSchema.parse(req.body);
     const asset = await createAsset(payload);
     res.status(201).json(asset);
-  } catch (error) {
-    next(error);
-  }
-});
+  }),
+);
 
-router.post('/:id/refresh', async (req, res, next) => {
-  try {
+router.post(
+  '/:id/refresh',
+  asyncHandler(async (req, res) => {
     const id = Number(req.params.id);
     const result = await refreshAssetPrice(id);
     res.json(result);
-  } catch (error) {
-    next(error);
-  }
-});
+  }),
+);
 
-router.put('/:id', async (req, res, next) => {
-  try {
+router.put(
+  '/:id',
+  asyncHandler(async (req, res) => {
     const id = Number(req.params.id);
     const payload = assetSchema.partial().omit({ portfolioId: true }).parse(req.body);
     const asset = await updateAsset(id, payload);
     res.json(asset);
-  } catch (error) {
-    next(error);
-  }
-});
+  }),
+);
 
-router.delete('/:id', async (req, res, next) => {
-  try {
+router.delete(
+  '/:id',
+  asyncHandler(async (req, res) => {
     const id = Number(req.params.id);
     await deleteAsset(id);
     res.status(204).end();
-  } catch (error) {
-    next(error);
-  }
-});
+  }),
+);
 
 export default router;

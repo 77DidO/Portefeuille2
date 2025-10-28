@@ -7,6 +7,7 @@ import clsx from 'clsx';
 import { ResponsiveContainer, ComposedChart, Area, XAxis, YAxis, Tooltip, Line, Legend } from 'recharts';
 import type { TooltipProps } from 'recharts';
 import { api } from '@/lib/api';
+import { formatCurrency } from '@/lib/formatters';
 import { AssetAccordion } from './AssetAccordion';
 
 interface PortfolioSectionProps {
@@ -15,8 +16,7 @@ interface PortfolioSectionProps {
 }
 
 export const PortfolioSection = ({ portfolio, refreshTrigger }: PortfolioSectionProps) => {
-  const format = (value: number) =>
-    new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(value);
+  const format = formatCurrency;
   const dateFormatter = useMemo(
     () => new Intl.DateTimeFormat('fr-FR', { timeZone: 'UTC' }),
     [],

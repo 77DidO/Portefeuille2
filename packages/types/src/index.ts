@@ -1,3 +1,5 @@
+export * from './symbols.js';
+
 export type PortfolioCategory = 'GLOBAL' | 'CRYPTO' | 'PEA' | 'OTHER';
 export type AssetType = 'STOCK' | 'CRYPTO' | 'ETF' | 'FUND' | 'OTHER';
 export type TransactionType = 'BUY' | 'SELL';

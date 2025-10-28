@@ -1,5 +1,5 @@
 import { prisma } from '../prismaClient.js';
-import type { BackfillPriceHistoryResponse } from '@portefeuille/types';
+import { isCashSymbol, type BackfillPriceHistoryResponse } from '@portefeuille/types';
 import { getCachedPrice, cachePrice } from '../utils/cache.js';
 import { getLogger } from '../utils/logger.js';
 
@@ -81,10 +81,6 @@ const isIsin = (symbol: string) => /^[A-Z]{2}[A-Z0-9]{9}[0-9]$/.test(symbol);
 
 const dedupe = (values: string[]) => Array.from(new Set(values.filter((value) => value.trim().length > 0)));
 const normalizeCryptoSymbol = (symbol: string) => symbol.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
-const isCashSymbol = (symbol: string) => {
-  const upper = symbol.trim().toUpperCase();
-  return upper === 'PEA_CASH' || upper === '_PEA_CASH' || upper === 'CASH';
-};
 const isManualPriceSymbol = (symbol: string | null | undefined) => {
   if (!symbol) {
     return false;
@@ -956,4 +952,3 @@ export const backfillPriceHistory = async (): Promise<BackfillPriceHistoryRespon
     errors,
   };
 };
-

@@ -1,35 +1,20 @@
 import { prisma } from '../prismaClient.js';
 import { Asset, Portfolio, PricePoint, Transaction } from '@prisma/client';
 import { roundCurrency, toNumber } from '../utils/numbers.js';
-import { PortfolioDetail, PortfolioSummary, AssetSummary, TrendPoint } from '@portefeuille/types';
+import {
+  PortfolioDetail,
+  PortfolioSummary,
+  AssetSummary,
+  TrendPoint,
+  isCashSymbol,
+  isFiatSymbol,
+} from '@portefeuille/types';
 import { Decimal } from 'decimal.js';
 
 interface AssetWithRelations extends Asset {
   transactions: Transaction[];
   pricePoints: PricePoint[];
 }
-
-const CASH_SYMBOLS = new Set([
-  'PEA_CASH',
-  '_PEA_CASH',
-  'CASH',
-  'EUR',
-  'USD',
-  'USDT',
-  'USDC',
-  'BUSD',
-  'GBP',
-]);
-
-// Symboles de vraie monnaie fiat (pas les stablecoins)
-const FIAT_SYMBOLS = new Set([
-  'PEA_CASH',
-  '_PEA_CASH',
-  'CASH',
-  'EUR',
-  'USD',
-  'GBP',
-]);
 
 /**
  * Calcule le capital total investi basé sur les versements de cash
@@ -52,8 +37,7 @@ const computeTotalDividends = (portfolio: Portfolio & { assets: AssetWithRelatio
   let totalDividends = 0;
   
   portfolio.assets.forEach((asset) => {
-    const symbol = asset.symbol?.toUpperCase?.() ?? '';
-    const isCashAsset = CASH_SYMBOLS.has(symbol);
+    const isCashAsset = isCashSymbol(asset.symbol);
     
     if (isCashAsset) {
       asset.transactions.forEach((tx) => {
@@ -81,9 +65,8 @@ const identifyCashDeposits = (portfolio: Portfolio & { assets: AssetWithRelation
   
   const allTransactions = portfolio.assets
     .flatMap((asset) => {
-      const symbol = asset.symbol?.toUpperCase?.() ?? '';
-      const isCashAsset = CASH_SYMBOLS.has(symbol);
-      const isFiat = FIAT_SYMBOLS.has(symbol);
+      const isCashAsset = isCashSymbol(asset.symbol);
+      const isFiat = isFiatSymbol(asset.symbol);
       return asset.transactions.map((tx) => ({
         id: tx.id,
         assetId: asset.id,
@@ -170,8 +153,7 @@ const computeAssetSummary = (asset: AssetWithRelations): AssetSummary => {
     value: toNumber(pp.price),
   }));
 
-  const symbolUpper = asset.symbol?.toUpperCase?.() ?? '';
-  const isCashAsset = CASH_SYMBOLS.has(symbolUpper);
+  const isCashAsset = isCashSymbol(asset.symbol);
   const adjustedQuantity = isCashAsset ? Math.max(netQuantity, 0) : netQuantity;
   const cashUnitPrice = latestPriceValue ?? 1;
   const adjustedMarketValue =
@@ -200,10 +182,10 @@ const computeAssetSummary = (asset: AssetWithRelations): AssetSummary => {
 const computePortfolioTotals = (portfolio: Portfolio & { assets: AssetWithRelations[] }): PortfolioSummary => {
   const assetSummaries = portfolio.assets.map(computeAssetSummary);
   const cashValue = assetSummaries
-    .filter((asset) => CASH_SYMBOLS.has(asset.symbol?.toUpperCase?.() ?? ''))
+    .filter((asset) => isCashSymbol(asset.symbol))
     .reduce((acc, asset) => acc + asset.marketValue, 0);
   const nonCashAssets = assetSummaries.filter(
-    (asset) => !CASH_SYMBOLS.has(asset.symbol?.toUpperCase?.() ?? ''),
+    (asset) => !isCashSymbol(asset.symbol),
   );
   
   // Calculer le capital investi basé sur les versements de cash
@@ -314,8 +296,7 @@ export const getPortfolioDetail = async (id: number): Promise<PortfolioDetail | 
   >();
 
   portfolio.assets.forEach((asset) => {
-    const symbol = asset.symbol?.toUpperCase?.() ?? '';
-    const isCashAsset = CASH_SYMBOLS.has(symbol);
+    const isCashAsset = isCashSymbol(asset.symbol);
     
     if (isCashAsset) {
       const dividendTxs = asset.transactions
@@ -372,8 +353,7 @@ export const getPortfolioDetail = async (id: number): Promise<PortfolioDetail | 
   >();
 
   portfolio.assets.forEach((asset) => {
-    const symbol = asset.symbol?.toUpperCase?.() ?? '';
-    const isCashAsset = CASH_SYMBOLS.has(symbol);
+    const isCashAsset = isCashSymbol(asset.symbol);
     const transactions = [...asset.transactions].sort(
       (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
     );

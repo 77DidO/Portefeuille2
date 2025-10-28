@@ -5,35 +5,12 @@ import type { MouseEvent } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import type { AssetSummary, AssetDetail } from '@portefeuille/types';
 import { api } from '@/lib/api';
+import { formatCurrency, formatQuantity } from '@/lib/formatters';
+import { getTransactionTypeClass, getTransactionTypeLabel } from '@/lib/transactions';
 import clsx from 'clsx';
 import { AreaChart, Area, ResponsiveContainer, XAxis, YAxis, Tooltip, ReferenceLine } from 'recharts';
 import type { TooltipProps } from 'recharts';
 import { useToast } from '@/components/ToastProvider';
-
-const formatCurrency = (value: number) =>
-  new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(value);
-
-const formatQuantity = (value: number) =>
-  new Intl.NumberFormat('fr-FR', {
-    maximumFractionDigits: value < 1 ? 6 : 2,
-    minimumFractionDigits: 0,
-  }).format(value);
-
-const getTransactionTypeLabel = (type: string, source?: string | null): string => {
-  if (source === 'dividend') return 'Dividende';
-  if (source === 'tax-refund') return 'Remb. fiscal';
-  if (type === 'BUY') return 'Achat';
-  if (type === 'SELL') return 'Vente';
-  return type;
-};
-
-const getTransactionTypeClass = (type: string, source?: string | null): string => {
-  if (source === 'dividend') return 'tx-chip--dividend';
-  if (source === 'tax-refund') return 'tx-chip--tax-refund';
-  if (type === 'BUY') return 'tx-chip--buy';
-  if (type === 'SELL') return 'tx-chip--sell';
-  return 'tx-chip--other';
-};
 
 const computeTrendMetrics = (trend: AssetSummary['trend']) => {
   if (!trend || trend.length < 2) {
@@ -513,4 +490,3 @@ export const AssetAccordion = ({ assets, refreshTrigger }: AssetAccordionProps) 
     </div>
   );
 };
-

@@ -7,9 +7,14 @@ import type {
   TransactionHistoryItem,
   TransactionType,
 } from '@portefeuille/types';
-import { createTransaction, deleteTransaction, updateTransaction } from '../services/transactionService.js';
+import {
+  createTransaction,
+  deleteTransaction,
+  updateTransaction,
+} from '../services/transactionService.js';
 import { prisma } from '../prismaClient.js';
 import { toNumber } from '../utils/numbers.js';
+import { asyncHandler } from '../middleware/errorHandler.js';
 
 const router = Router();
 
@@ -57,8 +62,9 @@ const parseEnumParam = <T extends string>(value: unknown, allowed: readonly T[])
   return allowed.includes(upper) ? upper : undefined;
 };
 
-router.get('/', async (req, res, next) => {
-  try {
+router.get(
+  '/',
+  asyncHandler(async (req, res) => {
     const assetId = parseNumberParam(req.query.assetId);
     const portfolioId = parseNumberParam(req.query.portfolioId);
     const typeFilter = parseEnumParam<TransactionType>(req.query.type, TRANSACTION_TYPES);
@@ -134,19 +140,21 @@ router.get('/', async (req, res, next) => {
       type: transaction.type as TransactionType,
       quantity: toNumber(transaction.quantity),
       price: toNumber(transaction.price),
-      fee: transaction.fee !== null && transaction.fee !== undefined ? toNumber(transaction.fee) : null,
+      fee:
+        transaction.fee !== null && transaction.fee !== undefined
+          ? toNumber(transaction.fee)
+          : null,
       date: transaction.date.toISOString(),
       source: transaction.source ?? null,
       note: transaction.note ?? null,
     }));
     res.json(payload);
-  } catch (error) {
-    next(error);
-  }
-});
+  }),
+);
 
-router.post('/', async (req, res, next) => {
-  try {
+router.post(
+  '/',
+  asyncHandler(async (req, res) => {
     const payload = transactionSchema.parse(req.body);
     const transaction = await createTransaction({
       assetId: payload.assetId,
@@ -159,13 +167,12 @@ router.post('/', async (req, res, next) => {
       note: payload.note,
     });
     res.status(201).json(transaction);
-  } catch (error) {
-    next(error);
-  }
-});
+  }),
+);
 
-router.put('/:id', async (req, res, next) => {
-  try {
+router.put(
+  '/:id',
+  asyncHandler(async (req, res) => {
     const id = Number(req.params.id);
     const payload = transactionSchema.partial().parse(req.body);
     const transaction = await updateTransaction(id, {
@@ -177,19 +184,16 @@ router.put('/:id', async (req, res, next) => {
       note: payload.note,
     });
     res.json(transaction);
-  } catch (error) {
-    next(error);
-  }
-});
+  }),
+);
 
-router.delete('/:id', async (req, res, next) => {
-  try {
+router.delete(
+  '/:id',
+  asyncHandler(async (req, res) => {
     const id = Number(req.params.id);
     await deleteTransaction(id);
     res.status(204).end();
-  } catch (error) {
-    next(error);
-  }
-});
+  }),
+);
 
 export default router;

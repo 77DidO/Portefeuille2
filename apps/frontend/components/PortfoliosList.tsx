@@ -2,15 +2,13 @@
 
 import type { PortfolioSummary } from '@portefeuille/types';
 import clsx from 'clsx';
+import { formatCurrency } from '@/lib/formatters';
 
 interface PortfoliosListProps {
   portfolios: PortfolioSummary[];
   selectedPortfolioId?: number | null;
   onSelect: (portfolioId: number) => void;
 }
-
-const formatCurrency = (value: number) =>
-  new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(value);
 
 const categoryLabel: Record<PortfolioSummary['category'], string> = {
   GLOBAL: 'Global',

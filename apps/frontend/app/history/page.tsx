@@ -3,30 +3,22 @@
 import { Fragment, useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import clsx from 'clsx';
-import type { PortfolioCategory, TransactionHistoryItem } from '@portefeuille/types';
+import {
+  type PortfolioCategory,
+  type TransactionHistoryItem,
+  normalizeSymbol,
+  isCashSymbol,
+  isCashLikeSymbol,
+} from '@portefeuille/types';
 import { api } from '@/lib/api';
-
-const BASE_FIAT_SYMBOLS = new Set(['EUR', 'USD', 'GBP']);
-const STABLECOIN_SYMBOLS = new Set(['USDT', 'USDC', 'BUSD', 'DAI', 'TUSD']);
-const CASH_SYMBOLS = new Set(['PEA_CASH', '_PEA_CASH', 'CASH', ...BASE_FIAT_SYMBOLS]);
-
-const normalizeSymbol = (symbol: string | null | undefined) => symbol?.trim().toUpperCase() ?? '';
-
-const isCashSymbol = (symbol: string | null | undefined): boolean => {
-  const normalized = normalizeSymbol(symbol);
-  if (!normalized) return false;
-  return normalized.endsWith('_CASH') || CASH_SYMBOLS.has(normalized);
-};
+import { formatCurrency, formatQuantity } from '@/lib/formatters';
+import { getTransactionTypeClass, getTransactionTypeLabel } from '@/lib/transactions';
 
 const isCashLike = (tx: TransactionHistoryItem): boolean => {
   if (!tx) return false;
   if (tx.assetType === 'OTHER') return true;
   if (isCashSymbol(tx.assetSymbol)) return true;
-  if (
-    tx.assetType === 'CRYPTO' &&
-    (BASE_FIAT_SYMBOLS.has(normalizeSymbol(tx.assetSymbol)) ||
-      STABLECOIN_SYMBOLS.has(normalizeSymbol(tx.assetSymbol)))
-  ) {
+  if (tx.assetType === 'CRYPTO' && isCashLikeSymbol(tx.assetSymbol)) {
     return true;
   }
   return false;
@@ -191,20 +183,9 @@ const buildDisplayRows = (transactions: TransactionHistoryItem[]): DisplayRow[] 
   return rows;
 };
 
-const quantityFormatter = new Intl.NumberFormat('fr-FR', {
-  minimumFractionDigits: 0,
-  maximumFractionDigits: 6,
-});
-
-const currencyFormatter = new Intl.NumberFormat('fr-FR', {
-  style: 'currency',
-  currency: 'EUR',
-  minimumFractionDigits: 2,
-  maximumFractionDigits: 2,
-});
-
-const formatAmount = (value: number): string => currencyFormatter.format(value);
-const formatQuantity = (value: number): string => quantityFormatter.format(value);
+const formatAmount = (value: number): string => formatCurrency(value);
+const formatHistoryQuantity = (value: number): string =>
+  formatQuantity(value, { maximumFractionDigits: 6 });
 const formatDateTime = (input: string) =>
   new Intl.DateTimeFormat('fr-FR', {
     dateStyle: 'medium',
@@ -380,22 +361,6 @@ export default function HistoryPage() {
     })),
   ];
 
-const getTransactionTypeLabel = (tx: TransactionHistoryItem): string => {
-  if (tx.source === 'dividend') return 'Dividende';
-  if (tx.source === 'tax-refund') return 'Remb. fiscal';
-  if (tx.type === 'BUY') return 'Achat';
-  if (tx.type === 'SELL') return 'Vente';
-  return tx.type;
-};
-
-const getTransactionTypeClass = (tx: TransactionHistoryItem): string => {
-  if (tx.source === 'dividend') return 'tx-chip--dividend';
-  if (tx.source === 'tax-refund') return 'tx-chip--tax-refund';
-  if (tx.type === 'BUY') return 'tx-chip--buy';
-  if (tx.type === 'SELL') return 'tx-chip--sell';
-  return 'tx-chip--other';
-};
-
 const renderDetailContent = (row: DisplayRow) => {
   const detailTransactions =
     row.kind === 'combined' ? [row.main, row.counter] : [row.transaction];
@@ -422,8 +387,8 @@ const renderDetailContent = (row: DisplayRow) => {
               <tr key={tx.id}>
                 <td>{formatDateTime(tx.date)}</td>
                 <td>
-                  <span className={clsx('tx-chip', getTransactionTypeClass(tx))}>
-                    {getTransactionTypeLabel(tx)}
+                  <span className={clsx('tx-chip', getTransactionTypeClass(tx.type, tx.source))}>
+                    {getTransactionTypeLabel(tx.type, tx.source)}
                   </span>
                 </td>
                 <td>
@@ -434,7 +399,7 @@ const renderDetailContent = (row: DisplayRow) => {
                     </span>
                   </div>
                 </td>
-                <td>{formatQuantity(toNumber(tx.quantity))}</td>
+                <td>{formatHistoryQuantity(toNumber(tx.quantity))}</td>
                 <td>{formatAmount(toNumber(tx.price))}</td>
                 <td>{tx.fee ? formatAmount(toNumber(tx.fee)) : ''}</td>
                 <td>
@@ -628,17 +593,17 @@ const renderDetailContent = (row: DisplayRow) => {
                             <span
                               className={clsx('tx-chip', 
                                 row.kind === 'combined'
-                                  ? getTransactionTypeClass(row.main)
-                                  : getTransactionTypeClass(row.transaction)
+                                  ? getTransactionTypeClass(row.main.type, row.main.source)
+                                  : getTransactionTypeClass(row.transaction.type, row.transaction.source)
                               )}
                             >
                               {row.kind === 'combined'
-                                ? getTransactionTypeLabel(row.main)
-                                : getTransactionTypeLabel(row.transaction)}
+                                ? getTransactionTypeLabel(row.main.type, row.main.source)
+                                : getTransactionTypeLabel(row.transaction.type, row.transaction.source)}
                             </span>
                           </td>
                           <td>
-                            {formatQuantity(
+                            {formatHistoryQuantity(
                               toNumber(
                                 row.kind === 'combined'
                                   ? row.main.quantity

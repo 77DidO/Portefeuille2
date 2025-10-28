@@ -1,4 +1,5 @@
 import type { PortfolioSummary } from '@portefeuille/types';
+import { formatCurrency } from '@/lib/formatters';
 
 interface PortfolioBannerProps {
   title: string;
@@ -6,9 +7,6 @@ interface PortfolioBannerProps {
   portfolios: PortfolioSummary[];
   onSelect: (portfolioId: number) => void;
 }
-
-const formatCurrency = (value: number) =>
-  new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(value);
 
 const defaultColors: Record<string, string> = {
   GLOBAL: '#4ade80',
@@ -72,4 +70,3 @@ export function PortfolioBanner({ title, description, portfolios, onSelect }: Po
     </section>
   );
 }
-
