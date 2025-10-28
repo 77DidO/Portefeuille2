@@ -3,6 +3,7 @@ import { getEnv } from '../config/env.js';
 import { getLogger } from './logger.js';
 
 let redis: Redis | null = null;
+let redisErrorLogged = false; // Track if we've already logged the Redis error
 
 /**
  * Initialize Redis connection
@@ -31,15 +32,23 @@ export const initializeRedis = (): Redis | null => {
 
     redis.on('connect', () => {
       logger.info({ host: env.REDIS_HOST, port: env.REDIS_PORT }, 'Redis connected');
+      redisErrorLogged = false; // Reset error flag on successful connection
     });
 
     redis.on('error', (err: Error) => {
-      logger.warn({ err }, 'Redis connection error - cache disabled');
+      // Only log the error once to avoid spam
+      if (!redisErrorLogged) {
+        logger.warn({ err }, 'Redis connection error - cache disabled (further errors will be suppressed)');
+        redisErrorLogged = true;
+      }
     });
 
     // Connect in background
     redis.connect().catch((err: Error) => {
-      logger.warn({ err }, 'Redis initial connection failed - cache disabled');
+      if (!redisErrorLogged) {
+        logger.warn({ err }, 'Redis initial connection failed - cache disabled');
+        redisErrorLogged = true;
+      }
     });
 
     return redis;
