@@ -216,6 +216,9 @@ export default function HistoryPage() {
     'ALL' | PortfolioCategory | 'UNCATEGORISED'
   >('ALL');
   const [selectedPortfolio, setSelectedPortfolio] = useState<number | 'ALL'>('ALL');
+  const [selectedTransactionType, setSelectedTransactionType] = useState<
+    'ALL' | 'BUY' | 'SELL' | 'DIVIDEND' | 'TAX_REFUND'
+  >('ALL');
   const [searchTerm, setSearchTerm] = useState('');
   const [expandedKey, setExpandedKey] = useState<string | null>(null);
 
@@ -274,12 +277,37 @@ export default function HistoryPage() {
     return counts;
   }, [transactions]);
 
+  const transactionTypeCounts = useMemo(() => {
+    const counts = {
+      BUY: 0,
+      SELL: 0,
+      DIVIDEND: 0,
+      TAX_REFUND: 0,
+    };
+    transactions.forEach((tx) => {
+      if (tx.source === 'dividend') counts.DIVIDEND += 1;
+      else if (tx.source === 'tax-refund') counts.TAX_REFUND += 1;
+      else if (tx.type === 'BUY') counts.BUY += 1;
+      else if (tx.type === 'SELL') counts.SELL += 1;
+    });
+    return counts;
+  }, [transactions]);
+
   const filteredTransactions = useMemo(() => {
     const needle = searchTerm.trim().toLowerCase();
     return transactions.filter((tx) => {
       const txCategory = tx.portfolioCategory ?? 'UNCATEGORISED';
       if (selectedCategory !== 'ALL' && txCategory !== selectedCategory) return false;
       if (selectedPortfolio !== 'ALL' && tx.portfolioId !== selectedPortfolio) return false;
+      
+      // Filter by transaction type
+      if (selectedTransactionType !== 'ALL') {
+        if (selectedTransactionType === 'DIVIDEND' && tx.source !== 'dividend') return false;
+        if (selectedTransactionType === 'TAX_REFUND' && tx.source !== 'tax-refund') return false;
+        if (selectedTransactionType === 'BUY' && (tx.type !== 'BUY' || tx.source === 'dividend' || tx.source === 'tax-refund')) return false;
+        if (selectedTransactionType === 'SELL' && (tx.type !== 'SELL' || tx.source === 'dividend' || tx.source === 'tax-refund')) return false;
+      }
+      
       if (!needle) return true;
       const haystack = [tx.assetName, tx.assetSymbol, tx.portfolioName, tx.source, tx.note]
         .filter(Boolean)
@@ -287,7 +315,7 @@ export default function HistoryPage() {
         .toLowerCase();
       return haystack.includes(needle);
     });
-  }, [transactions, selectedCategory, selectedPortfolio, searchTerm]);
+  }, [transactions, selectedCategory, selectedPortfolio, selectedTransactionType, searchTerm]);
 
   const displayRows = useMemo(
     () => buildDisplayRows(filteredTransactions),
@@ -352,6 +380,22 @@ export default function HistoryPage() {
     })),
   ];
 
+const getTransactionTypeLabel = (tx: TransactionHistoryItem): string => {
+  if (tx.source === 'dividend') return 'Dividende';
+  if (tx.source === 'tax-refund') return 'Remb. fiscal';
+  if (tx.type === 'BUY') return 'Achat';
+  if (tx.type === 'SELL') return 'Vente';
+  return tx.type;
+};
+
+const getTransactionTypeClass = (tx: TransactionHistoryItem): string => {
+  if (tx.source === 'dividend') return 'tx-chip--dividend';
+  if (tx.source === 'tax-refund') return 'tx-chip--tax-refund';
+  if (tx.type === 'BUY') return 'tx-chip--buy';
+  if (tx.type === 'SELL') return 'tx-chip--sell';
+  return 'tx-chip--other';
+};
+
 const renderDetailContent = (row: DisplayRow) => {
   const detailTransactions =
     row.kind === 'combined' ? [row.main, row.counter] : [row.transaction];
@@ -372,19 +416,14 @@ const renderDetailContent = (row: DisplayRow) => {
         </thead>
         <tbody>
           {detailTransactions.map((tx) => {
-            const amount = computeSignedAmount(tx);
+            const isDividendOrRefund = tx.source === 'dividend' || tx.source === 'tax-refund';
+            const amount = isDividendOrRefund ? Math.abs(computeSignedAmount(tx)) : computeSignedAmount(tx);
             return (
               <tr key={tx.id}>
                 <td>{formatDateTime(tx.date)}</td>
                 <td>
-                  <span
-                    className={clsx('tx-chip', {
-                      'tx-chip--buy': tx.type === 'BUY',
-                      'tx-chip--sell': tx.type === 'SELL',
-                      'tx-chip--other': tx.type !== 'BUY' && tx.type !== 'SELL',
-                    })}
-                  >
-                    {tx.type === 'BUY' ? 'Achat' : tx.type === 'SELL' ? 'Vente' : tx.type}
+                  <span className={clsx('tx-chip', getTransactionTypeClass(tx))}>
+                    {getTransactionTypeLabel(tx)}
                   </span>
                 </td>
                 <td>
@@ -401,8 +440,8 @@ const renderDetailContent = (row: DisplayRow) => {
                 <td>
                   <span
                     className={clsx('history-amount', {
-                      plus: amount >= 0,
-                      minus: amount < 0,
+                      plus: isDividendOrRefund || amount >= 0,
+                      minus: !isDividendOrRefund && amount < 0,
                     })}
                   >
                     {formatAmount(amount)}
@@ -460,6 +499,22 @@ const renderDetailContent = (row: DisplayRow) => {
                 ))}
               </div>
             </div>
+
+            <label className="history-select">
+              <span>Type</span>
+              <select
+                value={selectedTransactionType}
+                onChange={(event) => {
+                  setSelectedTransactionType(event.target.value as 'ALL' | 'BUY' | 'SELL' | 'DIVIDEND' | 'TAX_REFUND');
+                }}
+              >
+                <option value="ALL">Tous ({transactions.length})</option>
+                <option value="BUY">Achats ({transactionTypeCounts.BUY})</option>
+                <option value="SELL">Ventes ({transactionTypeCounts.SELL})</option>
+                <option value="DIVIDEND">Dividendes ({transactionTypeCounts.DIVIDEND})</option>
+                <option value="TAX_REFUND">Remb. fiscaux ({transactionTypeCounts.TAX_REFUND})</option>
+              </select>
+            </label>
 
             <label className="history-select">
               <span>Portefeuille</span>
@@ -546,18 +601,6 @@ const renderDetailContent = (row: DisplayRow) => {
                                 color: portfolioColor,
                               } : undefined}
                             >
-                              {portfolioColor && (
-                                <span
-                                  style={{
-                                    display: 'inline-block',
-                                    width: '8px',
-                                    height: '8px',
-                                    borderRadius: '50%',
-                                    backgroundColor: portfolioColor,
-                                    marginRight: '6px',
-                                  }}
-                                />
-                              )}
                               {portfolioName}
                             </span>
                           </td>
@@ -583,23 +626,15 @@ const renderDetailContent = (row: DisplayRow) => {
                           </td>
                           <td>
                             <span
-                              className={
+                              className={clsx('tx-chip', 
                                 row.kind === 'combined'
-                                  ? row.main.type === 'BUY'
-                                    ? 'chip chip--buy'
-                                    : 'chip chip--sell'
-                                  : row.transaction.type === 'BUY'
-                                  ? 'chip chip--buy'
-                                  : 'chip chip--sell'
-                              }
+                                  ? getTransactionTypeClass(row.main)
+                                  : getTransactionTypeClass(row.transaction)
+                              )}
                             >
                               {row.kind === 'combined'
-                                ? row.main.type === 'BUY'
-                                  ? 'Achat'
-                                  : 'Vente'
-                                : row.transaction.type === 'BUY'
-                                ? 'Achat'
-                                : 'Vente'}
+                                ? getTransactionTypeLabel(row.main)
+                                : getTransactionTypeLabel(row.transaction)}
                             </span>
                           </td>
                           <td>
@@ -621,13 +656,19 @@ const renderDetailContent = (row: DisplayRow) => {
                           <td>
                             <span
                               className={
-                                (row.kind === 'combined' ? row.mainAmount : row.amount) >= 0
+                                row.kind === 'combined'
+                                  ? (row.main.source === 'dividend' || row.main.source === 'tax-refund') || row.mainAmount >= 0
+                                    ? 'history-amount plus'
+                                    : 'history-amount minus'
+                                  : (row.transaction.source === 'dividend' || row.transaction.source === 'tax-refund') || row.amount >= 0
                                   ? 'history-amount plus'
                                   : 'history-amount minus'
                               }
                             >
                               {formatAmount(
-                                row.kind === 'combined' ? row.mainAmount : row.amount,
+                                row.kind === 'combined' 
+                                  ? (row.main.source === 'dividend' || row.main.source === 'tax-refund' ? Math.abs(row.mainAmount) : row.mainAmount)
+                                  : (row.transaction.source === 'dividend' || row.transaction.source === 'tax-refund' ? Math.abs(row.amount) : row.amount),
                               )}
                             </span>
                           </td>

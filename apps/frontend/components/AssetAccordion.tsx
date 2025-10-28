@@ -19,6 +19,22 @@ const formatQuantity = (value: number) =>
     minimumFractionDigits: 0,
   }).format(value);
 
+const getTransactionTypeLabel = (type: string, source?: string | null): string => {
+  if (source === 'dividend') return 'Dividende';
+  if (source === 'tax-refund') return 'Remb. fiscal';
+  if (type === 'BUY') return 'Achat';
+  if (type === 'SELL') return 'Vente';
+  return type;
+};
+
+const getTransactionTypeClass = (type: string, source?: string | null): string => {
+  if (source === 'dividend') return 'tx-chip--dividend';
+  if (source === 'tax-refund') return 'tx-chip--tax-refund';
+  if (type === 'BUY') return 'tx-chip--buy';
+  if (type === 'SELL') return 'tx-chip--sell';
+  return 'tx-chip--other';
+};
+
 const computeTrendMetrics = (trend: AssetSummary['trend']) => {
   if (!trend || trend.length < 2) {
     return null;
@@ -436,14 +452,8 @@ export const AssetAccordion = ({ assets, refreshTrigger }: AssetAccordionProps) 
                           <tr key={tx.id}>
                             <td>{new Date(tx.date).toLocaleDateString('fr-FR')}</td>
                             <td>
-                              <span
-                                className={clsx('tx-chip', {
-                                  'tx-chip--buy': tx.type === 'BUY',
-                                  'tx-chip--sell': tx.type === 'SELL',
-                                  'tx-chip--other': tx.type !== 'BUY' && tx.type !== 'SELL',
-                                })}
-                              >
-                                {tx.type === 'BUY' ? 'Achat' : tx.type === 'SELL' ? 'Vente' : tx.type}
+                              <span className={clsx('tx-chip', getTransactionTypeClass(tx.type, tx.source))}>
+                                {getTransactionTypeLabel(tx.type, tx.source)}
                               </span>
                             </td>
                             <td>{tx.quantity}</td>
