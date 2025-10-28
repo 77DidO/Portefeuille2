@@ -21,6 +21,128 @@ const CASH_SYMBOLS = new Set([
   'GBP',
 ]);
 
+// Symboles de vraie monnaie fiat (pas les stablecoins)
+const FIAT_SYMBOLS = new Set([
+  'PEA_CASH',
+  '_PEA_CASH',
+  'CASH',
+  'EUR',
+  'USD',
+  'GBP',
+]);
+
+/**
+ * Calcule le capital total investi basé sur les versements de cash
+ */
+const computeTotalInvestedFromDeposits = (portfolio: Portfolio & { assets: AssetWithRelations[] }): number => {
+  const { cashDeposits } = identifyCashDeposits(portfolio);
+  
+  let totalDeposits = 0;
+  cashDeposits.forEach((tx) => {
+    totalDeposits += toNumber(tx.quantity);
+  });
+
+  return totalDeposits;
+};
+
+/**
+ * Calcule le total des dividendes et remboursements fiscaux
+ */
+const computeTotalDividends = (portfolio: Portfolio & { assets: AssetWithRelations[] }): number => {
+  let totalDividends = 0;
+  
+  portfolio.assets.forEach((asset) => {
+    const symbol = asset.symbol?.toUpperCase?.() ?? '';
+    const isCashAsset = CASH_SYMBOLS.has(symbol);
+    
+    if (isCashAsset) {
+      asset.transactions.forEach((tx) => {
+        const source = tx.source?.toLowerCase?.() ?? '';
+        if (source === 'dividend' || source === 'tax-refund') {
+          if (tx.type === 'BUY') {
+            totalDividends += toNumber(tx.quantity);
+          }
+        }
+      });
+    }
+  });
+  
+  return totalDividends;
+};
+
+/**
+ * Identifie les transactions qui sont de vrais versements de cash (vs mouvements internes)
+ */
+const identifyCashDeposits = (portfolio: Portfolio & { assets: AssetWithRelations[] }) => {
+  // Adapter le seuil en fonction du type de portefeuille
+  // Crypto : petits versements possibles (ex: 10€)
+  // PEA/Actions : versements plus importants (ex: 100€+)
+  const MIN_DEPOSIT = portfolio.category === 'CRYPTO' ? 1 : 50;
+  
+  const allTransactions = portfolio.assets
+    .flatMap((asset) => {
+      const symbol = asset.symbol?.toUpperCase?.() ?? '';
+      const isCashAsset = CASH_SYMBOLS.has(symbol);
+      const isFiat = FIAT_SYMBOLS.has(symbol);
+      return asset.transactions.map((tx) => ({
+        id: tx.id,
+        assetId: asset.id,
+        type: tx.type,
+        date: tx.date,
+        quantity: tx.quantity,
+        price: tx.price,
+        fee: tx.fee,
+        isCashAsset,
+        isFiat,
+      }));
+    })
+    .sort((a, b) => {
+      const diff = new Date(a.date).getTime() - new Date(b.date).getTime();
+      if (diff !== 0) return diff;
+      return a.id - b.id;
+    });
+
+  // Identifier les ventes d'actifs par jour
+  // Pour crypto : inclure aussi les SELL de cash (conversions entre devises)
+  const assetSales = new Map<string, number>();
+  allTransactions.forEach((tx) => {
+    const shouldCount = portfolio.category === 'CRYPTO' 
+      ? tx.type === 'SELL' // Pour crypto : compter tous les SELL
+      : (!tx.isCashAsset && tx.type === 'SELL'); // Pour autres : seulement SELL d'actifs
+      
+    if (shouldCount) {
+      const dayKey = new Date(tx.date).toISOString().split('T')[0];
+      const amount = toNumber(tx.quantity) * toNumber(tx.price || 0);
+      assetSales.set(dayKey, (assetSales.get(dayKey) || 0) + amount);
+    }
+  });
+
+  // Identifier les vrais versements de cash
+  const cashDeposits: typeof allTransactions = [];
+  allTransactions.forEach((tx) => {
+    // Pour les cryptos : seuls les BUY de FIAT (EUR, USD) sont des versements
+    // Les BUY de stablecoins (USDT, USDC) sont des conversions
+    // Pour les autres : tous les BUY de cash
+    const isCashDeposit = portfolio.category === 'CRYPTO' ? tx.isFiat : tx.isCashAsset;
+    
+    if (isCashDeposit && tx.type === 'BUY') {
+      const dayKey = new Date(tx.date).toISOString().split('T')[0];
+      const amount = toNumber(tx.quantity);
+      const soldOnSameDay = assetSales.get(dayKey) || 0;
+      
+      // Filtrer les versements :
+      // 1. Montant > MIN_DEPOSIT (défini selon le type de portefeuille)
+      // 2. Dépasse les ventes d'actifs du jour de plus de 10€
+      const THRESHOLD = 10;
+      if (amount > MIN_DEPOSIT && amount > soldOnSameDay + THRESHOLD) {
+        cashDeposits.push(tx);
+      }
+    }
+  });
+
+  return { allTransactions, cashDeposits };
+};
+
 const computeAssetSummary = (asset: AssetWithRelations): AssetSummary => {
   const sortedPrices = [...asset.pricePoints].sort(
     (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
@@ -83,11 +205,23 @@ const computePortfolioTotals = (portfolio: Portfolio & { assets: AssetWithRelati
   const nonCashAssets = assetSummaries.filter(
     (asset) => !CASH_SYMBOLS.has(asset.symbol?.toUpperCase?.() ?? ''),
   );
-  const investedValue = nonCashAssets.reduce((acc, asset) => acc + asset.investedValue, 0);
+  
+  // Calculer le capital investi basé sur les versements de cash
+  const totalDeposits = computeTotalInvestedFromDeposits(portfolio);
+  
+  // Calculer le total des dividendes
+  const totalDividends = computeTotalDividends(portfolio);
+  
+  // Calculer le capital réellement investi dans les actifs (hors cash)
+  const investedInAssets = nonCashAssets.reduce((acc, asset) => acc + asset.investedValue, 0);
+  
   const investedMarketValue = nonCashAssets.reduce((acc, asset) => acc + asset.marketValue, 0);
   const totalValue = assetSummaries.reduce((acc, asset) => acc + asset.marketValue, 0);
-  const gainLossValue = investedMarketValue - investedValue;
-  const gainLossPercentage = investedValue !== 0 ? (gainLossValue / investedValue) * 100 : 0;
+  
+  // Gain/perte = Valeur des actifs - Coût d'achat des actifs (hors cash)
+  // Le cash ne génère ni gain ni perte, c'est juste de la liquidité
+  const gainLossValue = investedMarketValue - investedInAssets;
+  const gainLossPercentage = investedInAssets !== 0 ? (gainLossValue / investedInAssets) * 100 : 0;
 
   return {
     id: portfolio.id,
@@ -95,10 +229,11 @@ const computePortfolioTotals = (portfolio: Portfolio & { assets: AssetWithRelati
     category: portfolio.category as PortfolioSummary['category'],
     color: portfolio.color,
     totalValue: roundCurrency(totalValue),
-    investedValue: roundCurrency(investedValue),
+    investedValue: roundCurrency(totalDeposits),
     gainLossValue: roundCurrency(gainLossValue),
     gainLossPercentage: roundCurrency(gainLossPercentage, 2),
     cashValue: roundCurrency(cashValue),
+    dividendsValue: roundCurrency(totalDividends),
     assets: assetSummaries,
   };
 };
@@ -134,28 +269,11 @@ export const getPortfolioDetail = async (id: number): Promise<PortfolioDetail | 
     return null;
   }
   const summary = computePortfolioTotals(portfolio);
-  const allTransactions = portfolio.assets
-    .flatMap((asset) => {
-      const symbol = asset.symbol?.toUpperCase?.() ?? '';
-      const isCashAsset = CASH_SYMBOLS.has(symbol);
-      return asset.transactions.map((tx) => ({
-        id: tx.id,
-        type: tx.type,
-        date: tx.date,
-        quantity: tx.quantity,
-        price: tx.price,
-        fee: tx.fee,
-        isCashAsset,
-      }));
-    })
-    .filter((tx) => !tx.isCashAsset)
-    .sort((a, b) => {
-      const diff = new Date(a.date).getTime() - new Date(b.date).getTime();
-      if (diff !== 0) {
-        return diff;
-      }
-      return a.id - b.id;
-    });
+  
+  // Identifier les versements de cash
+  const { cashDeposits } = identifyCashDeposits(portfolio);
+
+  // Calculer le capital investi basé sur les versements de cash
   let cumulativeInvested = 0;
   const investedDaily = new Map<
     string,
@@ -164,24 +282,18 @@ export const getPortfolioDetail = async (id: number): Promise<PortfolioDetail | 
       value: number;
     }
   >();
-  allTransactions.forEach((tx) => {
-    const qty = toNumber(tx.quantity);
-    const price = toNumber(tx.price);
-    const fee = toNumber(tx.fee ?? 0);
-    if (qty === 0 && price === 0 && fee === 0) {
-      return;
-    }
-    const delta = new Decimal(price).mul(qty).plus(fee).toNumber();
-    if (!Number.isFinite(delta) || delta === 0) {
-      return;
-    }
-    cumulativeInvested += tx.type === 'BUY' ? delta : -delta;
+  
+  cashDeposits.forEach((tx) => {
+    const amount = toNumber(tx.quantity);
+    cumulativeInvested += amount;
+    
     const txDate = new Date(tx.date);
     const dayKey = txDate.toISOString().split('T')[0];
     const dayTimestamp = Math.max(
       txDate.getTime(),
       Date.UTC(txDate.getUTCFullYear(), txDate.getUTCMonth(), txDate.getUTCDate()),
     );
+    
     const existing = investedDaily.get(dayKey);
     if (!existing || txDate.getTime() >= existing.timestamp) {
       investedDaily.set(dayKey, {
@@ -190,14 +302,68 @@ export const getPortfolioDetail = async (id: number): Promise<PortfolioDetail | 
       });
     }
   });
+
+  // Calculer les dividendes cumulés au fil du temps
+  let cumulativeDividends = 0;
+  const dividendsDaily = new Map<
+    string,
+    {
+      timestamp: number;
+      value: number;
+    }
+  >();
+
+  portfolio.assets.forEach((asset) => {
+    const symbol = asset.symbol?.toUpperCase?.() ?? '';
+    const isCashAsset = CASH_SYMBOLS.has(symbol);
+    
+    if (isCashAsset) {
+      const dividendTxs = asset.transactions
+        .filter(tx => {
+          const source = tx.source?.toLowerCase() ?? '';
+          return (source === 'dividend' || source === 'tax-refund') && tx.type === 'BUY';
+        })
+        .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+      
+      dividendTxs.forEach((tx) => {
+        const amount = toNumber(tx.quantity);
+        cumulativeDividends += amount;
+        
+        const txDate = new Date(tx.date);
+        const dayKey = txDate.toISOString().split('T')[0];
+        const dayTimestamp = Math.max(
+          txDate.getTime(),
+          Date.UTC(txDate.getUTCFullYear(), txDate.getUTCMonth(), txDate.getUTCDate()),
+        );
+        
+        const existing = dividendsDaily.get(dayKey);
+        if (!existing || txDate.getTime() >= existing.timestamp) {
+          dividendsDaily.set(dayKey, {
+            timestamp: dayTimestamp,
+            value: cumulativeDividends,
+          });
+        }
+      });
+    }
+  });
   const dailyTotals = new Map<
     string,
     {
       timestamp: number;
       assets: number;
+      investedInAssets?: number; // Coût d'achat cumulé des actifs
     }
   >();
   const cashSnapshots = new Map<
+    string,
+    {
+      timestamp: number;
+      value: number;
+    }
+  >();
+
+  // Map pour tracker le coût d'achat cumulé des actifs par jour
+  const dailyInvestedInAssets = new Map<
     string,
     {
       timestamp: number;
@@ -251,11 +417,14 @@ export const getPortfolioDetail = async (id: number): Promise<PortfolioDetail | 
     }
     let txIndex = 0;
     let runningQuantity = 0;
+    let runningCost = 0; // Coût d'achat cumulé
+    
     const dailyContribution = new Map<
       string,
       {
         timestamp: number;
         assets: number;
+        cost: number;
       }
     >();
 
@@ -264,7 +433,17 @@ export const getPortfolioDetail = async (id: number): Promise<PortfolioDetail | 
       while (txIndex < transactions.length && new Date(transactions[txIndex].date).getTime() <= pointTime) {
         const tx = transactions[txIndex];
         const qty = toNumber(tx.quantity);
-        runningQuantity += tx.type === 'BUY' ? qty : -qty;
+        const price = toNumber(tx.price);
+        const fee = toNumber(tx.fee ?? 0);
+        const delta = new Decimal(price).mul(qty).plus(fee).toNumber();
+        
+        if (tx.type === 'BUY') {
+          runningQuantity += qty;
+          runningCost += delta;
+        } else {
+          runningQuantity -= qty;
+          runningCost -= delta;
+        }
         txIndex += 1;
       }
       if (runningQuantity === 0) {
@@ -283,6 +462,7 @@ export const getPortfolioDetail = async (id: number): Promise<PortfolioDetail | 
         dailyContribution.set(dayKey, {
           timestamp: Math.max(pointTime, dayTimestamp),
           assets: value,
+          cost: runningCost,
         });
       }
     });
@@ -293,9 +473,14 @@ export const getPortfolioDetail = async (id: number): Promise<PortfolioDetail | 
         dailyTotals.set(dayKey, {
           timestamp: Math.max(existing.timestamp, entry.timestamp),
           assets: existing.assets + entry.assets,
+          investedInAssets: (existing.investedInAssets || 0) + entry.cost,
         });
       } else {
-        dailyTotals.set(dayKey, { ...entry });
+        dailyTotals.set(dayKey, { 
+          timestamp: entry.timestamp,
+          assets: entry.assets,
+          investedInAssets: entry.cost,
+        });
       }
     });
   });
@@ -306,11 +491,16 @@ export const getPortfolioDetail = async (id: number): Promise<PortfolioDetail | 
       timestamp: number;
       assets: number;
       cash?: number;
+      investedInAssets?: number;
     }
   >();
 
   dailyTotals.forEach((entry, dayKey) => {
-    combined.set(dayKey, { timestamp: entry.timestamp, assets: entry.assets });
+    combined.set(dayKey, { 
+      timestamp: entry.timestamp, 
+      assets: entry.assets,
+      investedInAssets: entry.investedInAssets,
+    });
   });
 
   cashSnapshots.forEach((entry, dayKey) => {
@@ -323,17 +513,42 @@ export const getPortfolioDetail = async (id: number): Promise<PortfolioDetail | 
     }
   });
 
+  // Ajouter les dividendes au combined map
+  dividendsDaily.forEach((entry, dayKey) => {
+    const existing = combined.get(dayKey);
+    if (existing) {
+      existing.timestamp = Math.max(existing.timestamp, entry.timestamp);
+    } else {
+      combined.set(dayKey, { timestamp: entry.timestamp, assets: 0 });
+    }
+  });
+
   const sortedCombined = [...combined.entries()].sort(
     (a, b) => a[1].timestamp - b[1].timestamp,
   );
   let lastCashValue = 0;
+  let lastInvestedInAssets = 0;
+  let lastDividendsValue = 0;
+  
   const priceHistory: TrendPoint[] = [];
   const cashHistory: TrendPoint[] = [];
+  const investedHistory: TrendPoint[] = [];
+  const dividendsHistory: TrendPoint[] = [];
 
-  sortedCombined.forEach(([, entry]) => {
+  sortedCombined.forEach(([dayKey, entry]) => {
     if (typeof entry.cash === 'number') {
       lastCashValue = entry.cash;
     }
+    if (typeof entry.investedInAssets === 'number') {
+      lastInvestedInAssets = entry.investedInAssets;
+    }
+    
+    // Mettre à jour les dividendes cumulés si on a un événement ce jour-là
+    const dividendEntry = dividendsDaily.get(dayKey);
+    if (dividendEntry) {
+      lastDividendsValue = dividendEntry.value;
+    }
+    
     const dateIso = new Date(entry.timestamp).toISOString();
     cashHistory.push({
       date: dateIso,
@@ -343,30 +558,23 @@ export const getPortfolioDetail = async (id: number): Promise<PortfolioDetail | 
       date: dateIso,
       value: roundCurrency(entry.assets + lastCashValue),
     });
+    // investedHistory = Coût d'achat cumulé des actifs (pour calculer la +/- value)
+    investedHistory.push({
+      date: dateIso,
+      value: roundCurrency(lastInvestedInAssets),
+    });
+    dividendsHistory.push({
+      date: dateIso,
+      value: roundCurrency(lastDividendsValue),
+    });
   });
-  const investedEntries = [...investedDaily.entries()].sort(
-    (a, b) => a[1].timestamp - b[1].timestamp,
-  );
-  let investedIndex = 0;
-  let latestInvested = 0;
-  const investedHistory: TrendPoint[] = priceHistory.map((point) => {
-    while (
-      investedIndex < investedEntries.length &&
-      investedEntries[investedIndex][1].timestamp <= new Date(point.date).getTime()
-    ) {
-      latestInvested = roundCurrency(investedEntries[investedIndex][1].value);
-      investedIndex += 1;
-    }
-    return {
-      date: point.date,
-      value: latestInvested,
-    };
-  });
+  
   return {
     ...summary,
     priceHistory,
     investedHistory,
     cashHistory,
+    dividendsHistory,
   };
 };
 
