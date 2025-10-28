@@ -10,6 +10,17 @@ interface PortfolioBannerProps {
 const formatCurrency = (value: number) =>
   new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(value);
 
+const defaultColors: Record<string, string> = {
+  GLOBAL: '#4ade80',
+  CRYPTO: '#fbbf24',
+  PEA: '#60a5fa',
+  OTHER: '#a78bfa',
+};
+
+const getPortfolioColor = (portfolio: PortfolioSummary): string => {
+  return portfolio.color || defaultColors[portfolio.category] || '#a78bfa';
+};
+
 export function PortfolioBanner({ title, description, portfolios, onSelect }: PortfolioBannerProps) {
   if (portfolios.length === 0) {
     return null;
@@ -48,8 +59,12 @@ export function PortfolioBanner({ title, description, portfolios, onSelect }: Po
               type='button'
               onClick={() => onSelect(portfolio.id)}
               className='banner__action'
+              style={{
+                borderLeft: `4px solid ${getPortfolioColor(portfolio)}`,
+              }}
             >
               {portfolio.name}
+              {portfolio.category === 'CRYPTO' && <span style={{ marginLeft: '0.5rem', color: '#fbbf24', fontSize: '0.85em' }}>🟡 Crypto</span>}
             </button>
           ))}
         </div>

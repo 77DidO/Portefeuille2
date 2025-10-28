@@ -6,6 +6,7 @@ export interface PortfolioSummary {
   id: number;
   name: string;
   category: PortfolioCategory;
+  color?: string | null;
   totalValue: number;
   investedValue: number;
   gainLossValue: number;
@@ -101,11 +102,13 @@ export interface ImportRequestBody {
 export interface PortfolioCreateInput {
   name: string;
   category: PortfolioCategory;
+  color?: string;
 }
 
 export interface PortfolioUpdateInput {
   name?: string;
   category?: PortfolioCategory;
+  color?: string;
 }
 
 export interface AssetCreateInput {

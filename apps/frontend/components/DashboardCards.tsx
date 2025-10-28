@@ -42,14 +42,18 @@ const categoryLabel: Record<PortfolioSummary['category'], string> = {
   OTHER: 'Autre',
 };
 
-const categoryColor: Record<PortfolioSummary['category'], string> = {
-  GLOBAL: '#38bdf8',
-  CRYPTO: '#f97316',
-  PEA: '#34d399',
-  OTHER: '#a855f7',
+const defaultCategoryColors: Record<PortfolioSummary['category'], string> = {
+  GLOBAL: '#4ade80',
+  CRYPTO: '#fbbf24',
+  PEA: '#60a5fa',
+  OTHER: '#a78bfa',
 };
 
-const chartPalette = ['#38bdf8', '#34d399', '#facc15', '#f472b6', '#a855f7', '#f97316', '#22d3ee', '#f87171'];
+const getPortfolioColor = (portfolio: PortfolioSummary): string => {
+  return portfolio.color || defaultCategoryColors[portfolio.category] || '#a78bfa';
+};
+
+const chartPalette = ['#60a5fa', '#4ade80', '#fbbf24', '#a78bfa', '#f87171', '#34d399', '#22d3ee', '#f472b6'];
 
 export const DashboardCards = ({
   portfolios,
@@ -565,7 +569,7 @@ export const DashboardCards = ({
                     alignItems: 'center',
                     justifyContent: 'space-between',
                     gap: '0.85rem',
-                    background: `linear-gradient(120deg, ${categoryColor[portfolio.category]}30, rgba(15, 23, 42, 0.96))`,
+                    background: `linear-gradient(120deg, ${getPortfolioColor(portfolio)}30, rgba(15, 23, 42, 0.96))`,
                     borderBottom: '1px solid rgba(148, 163, 184, 0.12)',
                   }}
                 >
@@ -602,10 +606,10 @@ export const DashboardCards = ({
                       borderRadius: '999px',
                       fontSize: '0.65rem',
                       fontWeight: 600,
-                      backgroundColor: `${categoryColor[portfolio.category]}1A`,
+                      backgroundColor: `${getPortfolioColor(portfolio)}1A`,
                       color: '#f8fafc',
-                      border: `1px solid ${categoryColor[portfolio.category]}33`,
-                      boxShadow: `inset 0 0 0 1px ${categoryColor[portfolio.category]}24`,
+                      border: `1px solid ${getPortfolioColor(portfolio)}33`,
+                      boxShadow: `inset 0 0 0 1px ${getPortfolioColor(portfolio)}24`,
                     }}
                   >
                     <span
@@ -613,7 +617,7 @@ export const DashboardCards = ({
                         width: '0.6rem',
                         height: '0.6rem',
                         borderRadius: '999px',
-                        backgroundColor: categoryColor[portfolio.category],
+                        backgroundColor: getPortfolioColor(portfolio),
                         boxShadow: '0 0 8px rgba(15, 23, 42, 0.8)',
                       }}
                     />

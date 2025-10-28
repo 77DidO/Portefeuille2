@@ -225,7 +225,29 @@ export default function HistoryPage() {
     staleTime: 30_000,
   });
 
+  const portfoliosQuery = useQuery({
+    queryKey: ['portfolios'],
+    queryFn: () => api.getPortfolios(),
+    staleTime: 30_000,
+  });
+
   const transactions = transactionsQuery.data ?? [];
+  const portfolios = portfoliosQuery.data ?? [];
+
+  const portfolioColorMap = useMemo(() => {
+    const map = new Map<number, string>();
+    portfolios.forEach((p) => {
+      const defaultColors: Record<string, string> = {
+        GLOBAL: '#4ade80',
+        CRYPTO: '#fbbf24',
+        PEA: '#60a5fa',
+        OTHER: '#a78bfa',
+      };
+      const color = p.color || defaultColors[p.category] || '#a78bfa';
+      map.set(p.id, color);
+    });
+    return map;
+  }, [portfolios]);
 
   const portfolioOptions = useMemo(() => {
     const map = new Map<number, { id: number; name: string; category: PortfolioCategory | null }>();
@@ -499,6 +521,11 @@ const renderDetailContent = (row: DisplayRow) => {
                       row.kind === 'combined'
                         ? row.main.portfolioCategory
                         : row.transaction.portfolioCategory;
+                    const portfolioId =
+                      row.kind === 'combined'
+                        ? row.main.portfolioId
+                        : row.transaction.portfolioId;
+                    const portfolioColor = portfolioId ? portfolioColorMap.get(portfolioId) : undefined;
                     return (
                       <Fragment key={row.key}>
                         <tr
@@ -511,7 +538,26 @@ const renderDetailContent = (row: DisplayRow) => {
                             )}
                           </td>
                           <td>
-                            <span className={`chip ${getCategoryClass(portfolioCategory)}`}>
+                            <span 
+                              className={`chip ${getCategoryClass(portfolioCategory)}`}
+                              style={portfolioColor ? {
+                                backgroundColor: `${portfolioColor}1A`,
+                                borderColor: `${portfolioColor}50`,
+                                color: portfolioColor,
+                              } : undefined}
+                            >
+                              {portfolioColor && (
+                                <span
+                                  style={{
+                                    display: 'inline-block',
+                                    width: '8px',
+                                    height: '8px',
+                                    borderRadius: '50%',
+                                    backgroundColor: portfolioColor,
+                                    marginRight: '6px',
+                                  }}
+                                />
+                              )}
                               {portfolioName}
                             </span>
                           </td>

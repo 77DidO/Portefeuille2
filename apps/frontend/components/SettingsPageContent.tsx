@@ -12,6 +12,17 @@ const categoryLabels: Record<PortfolioCategory, string> = {
   OTHER: 'Autre',
 };
 
+const defaultColors: Record<PortfolioCategory, string> = {
+  GLOBAL: '#4ade80',
+  CRYPTO: '#fbbf24',
+  PEA: '#60a5fa',
+  OTHER: '#a78bfa',
+};
+
+const getPortfolioColor = (portfolio: PortfolioSummary): string => {
+  return portfolio.color || defaultColors[portfolio.category] || '#a78bfa';
+};
+
 export function SettingsPageContent() {
   const [isResetLoading, setIsResetLoading] = useState(false);
   const [resetStatus, setResetStatus] = useState('');
@@ -24,11 +35,13 @@ export function SettingsPageContent() {
 
   const [newPortfolioName, setNewPortfolioName] = useState('');
   const [newPortfolioCategory, setNewPortfolioCategory] = useState<PortfolioCategory>('OTHER');
+  const [newPortfolioColor, setNewPortfolioColor] = useState('');
   const [portfolioStatus, setPortfolioStatus] = useState('');
   const [portfolioError, setPortfolioError] = useState('');
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editingName, setEditingName] = useState('');
   const [editingCategory, setEditingCategory] = useState<PortfolioCategory>('OTHER');
+  const [editingColor, setEditingColor] = useState('');
 
   const queryClient = useQueryClient();
   const portfoliosQuery = useQuery({
@@ -67,6 +80,7 @@ export function SettingsPageContent() {
       setPortfolioError('');
       setNewPortfolioName('');
       setNewPortfolioCategory('OTHER');
+      setNewPortfolioColor('');
       invalidatePortfolios();
     },
     onError: (err: unknown) => {
@@ -76,13 +90,14 @@ export function SettingsPageContent() {
   });
 
   const updatePortfolioMutation = useMutation({
-    mutationFn: ({ id, data }: { id: number; data: { name: string; category: PortfolioCategory } }) =>
+    mutationFn: ({ id, data }: { id: number; data: { name?: string; category?: PortfolioCategory; color?: string } }) =>
       api.updatePortfolio(id, data),
     onSuccess: (portfolio) => {
       setPortfolioStatus(`Portefeuille "${portfolio.name}" mis a jour.`);
       setPortfolioError('');
       setEditingId(null);
       setEditingName('');
+      setEditingColor('');
       invalidatePortfolios();
     },
     onError: (err: unknown) => {
@@ -163,6 +178,7 @@ export function SettingsPageContent() {
     createPortfolioMutation.mutate({
       name: newPortfolioName.trim(),
       category: newPortfolioCategory,
+      color: newPortfolioColor || undefined,
     });
   };
 
@@ -170,6 +186,7 @@ export function SettingsPageContent() {
     setEditingId(portfolio.id);
     setEditingName(portfolio.name);
     setEditingCategory(portfolio.category);
+    setEditingColor(portfolio.color || '');
     setPortfolioStatus('');
     setPortfolioError('');
   };
@@ -177,6 +194,7 @@ export function SettingsPageContent() {
   const cancelEditing = () => {
     setEditingId(null);
     setEditingName('');
+    setEditingColor('');
     setPortfolioStatus('');
     setPortfolioError('');
   };
@@ -191,7 +209,11 @@ export function SettingsPageContent() {
     }
     updatePortfolioMutation.mutate({
       id: editingId,
-      data: { name: editingName.trim(), category: editingCategory },
+      data: { 
+        name: editingName.trim(), 
+        category: editingCategory,
+        color: editingColor || undefined,
+      },
     });
   };
 
@@ -216,216 +238,363 @@ export function SettingsPageContent() {
   return (
     <main>
       <div className="page-inner">
-      <div className="page-header">
-        <h1>Configuration</h1>
-        <p>Administre les donnees, cree de nouveaux portefeuilles et gere leurs categories.</p>
-      </div>
-
-      <section className="dashboard-grid settings-grid" style={{ marginBottom: '2rem' }}>
-        <div className="card" style={{ gridColumn: 'span 7', display: 'grid', gap: '1.25rem' }}>
-          <div>
-            <h2>Gestion des portefeuilles</h2>
-            <p className="muted" style={{ margin: 0 }}>
-              Creez de nouveaux portefeuilles pour distinguer vos positions (crypto, actions, assurances vie, etc.). Vous pouvez aussi renommer ou changer la categorie des portefeuilles existants.
-            </p>
-          </div>
-
-          <form className="form-row" onSubmit={handleCreatePortfolio}>
-            <div style={{ flex: '2 1 220px' }}>
-              <label htmlFor="portfolio-name" className="form-label">
-                Nom du portefeuille
-              </label>
-              <input
-                id="portfolio-name"
-                type="text"
-                value={newPortfolioName}
-                onChange={(event) => setNewPortfolioName(event.target.value)}
-                placeholder="Ex. PEA croissance"
-                className="input"
-              />
-            </div>
-            <div style={{ flex: '1 1 140px' }}>
-              <label htmlFor="portfolio-category" className="form-label">
-                Categorie
-              </label>
-              <select
-                id="portfolio-category"
-                value={newPortfolioCategory}
-                onChange={(event) => setNewPortfolioCategory(event.target.value as PortfolioCategory)}
-                className="input"
-              >
-                {Object.entries(categoryLabels).map(([value, label]) => (
-                  <option key={value} value={value}>
-                    {label}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <button type="submit" className="primary" disabled={createPortfolioMutation.isPending} style={{ alignSelf: 'flex-end' }}>
-              {createPortfolioMutation.isPending ? 'Creation...' : 'Ajouter un portefeuille'}
-            </button>
-          </form>
-
-          {portfolioStatus && <div className="alert success">{portfolioStatus}</div>}
-          {portfolioError && <div className="alert error">{portfolioError}</div>}
-
-          <div className="table-responsive">
-            <table>
-              <thead>
-                <tr>
-                  <th>Nom</th>
-                  <th>Categorie</th>
-                  <th>Valeur</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {portfoliosQuery.isLoading && (
-                  <tr>
-                    <td colSpan={4} className="muted" style={{ padding: '1rem' }}>
-                      Chargement des portefeuilles...
-                    </td>
-                  </tr>
-                )}
-                {portfoliosQuery.isError && (
-                  <tr>
-                    <td colSpan={4} style={{ color: '#f87171', padding: '1rem' }}>
-                      Impossible de charger les portefeuilles.
-                    </td>
-                  </tr>
-                )}
-                {(portfoliosQuery.data ?? [])
-                  .filter((portfolio) => portfolio.category !== 'GLOBAL')
-                  .map((portfolio) => {
-                  const isEditing = editingId === portfolio.id;
-                  return (
-                    <tr key={portfolio.id}>
-                      <td>
-                        {isEditing ? (
-                          <input
-                            type="text"
-                            className="input"
-                            value={editingName}
-                            onChange={(event) => setEditingName(event.target.value)}
-                          />
-                        ) : (
-                          portfolio.name
-                        )}
-                      </td>
-                      <td>
-                        {isEditing ? (
-                          <select className="input" value={editingCategory} onChange={(event) => setEditingCategory(event.target.value as PortfolioCategory)}>
-                            {Object.entries(categoryLabels).map(([value, label]) => (
-                              <option key={value} value={value}>
-                                {label}
-                              </option>
-                            ))}
-                          </select>
-                        ) : (
-                          categoryLabels[portfolio.category]
-                        )}
-                      </td>
-                      <td>{new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(portfolio.totalValue)}</td>
-                      <td className="card-actions">
-                        {isEditing ? (
-                          <>
-                            <button type="button" className="primary" onClick={handleUpdatePortfolio} disabled={updatePortfolioMutation.isPending}>
-                              {updatePortfolioMutation.isPending ? 'Enregistrement...' : 'Enregistrer'}
-                            </button>
-                            <button type="button" className="danger" onClick={cancelEditing} disabled={updatePortfolioMutation.isPending}>
-                              Annuler
-                            </button>
-                          </>
-                        ) : (
-                          <>
-                            <button type="button" className="primary" onClick={() => startEditing(portfolio)}>
-                              Modifier
-                            </button>
-                            <button type="button" className="danger" onClick={() => handleDeletePortfolio(portfolio)} disabled={deletePortfolioMutation.isPending}>
-                              Supprimer
-                            </button>
-                          </>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-                {portfoliosQuery.data && portfoliosQuery.data.length === 0 && (
-                  <tr>
-                    <td colSpan={4} className="muted" style={{ padding: '1rem' }}>
-                      Aucun portefeuille pour le moment.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+        <div className="page-header">
+          <h1>⚙️ Configuration</h1>
+          <p className="muted">Gérez vos portefeuilles, catégories et données de l'application.</p>
         </div>
 
-        <div className="card" style={{ gridColumn: 'span 5', display: 'grid', gap: '0.75rem' }}>
-          <h2>Maintenance des donnees</h2>
-          <p className="muted" style={{ margin: 0 }}>
-            Cette operation supprime toutes les transactions, actifs et portefeuilles. Utiliser cette action uniquement pour repartir a zero.
-          </p>
-          <button type="button" className="danger" onClick={handleReset} disabled={isResetLoading}>
-            {isResetLoading ? 'Nettoyage en cours...' : 'Vider toutes les donnees'}
-          </button>
-          {resetStatus && <div className="alert success">{resetStatus}</div>}
-          {resetError && <div className="alert error">{resetError}</div>}
-          <hr style={{ border: 'none', borderTop: '1px solid rgba(148, 163, 184, 0.15)', margin: '0.75rem 0 0.5rem' }} />
-          <p className="muted" style={{ margin: 0 }}>
-            Reconstruit les historiques de cours a partir de votre premiere date d'achat pour chaque actif (Yahoo Finance pour les titres, Binance pour les cryptos).
-          </p>
-          <button
-            type="button"
-            className="primary"
-            onClick={() => {
-              setBackfillStatus('');
-              setBackfillError('');
-              backfillMutation.mutate();
-            }}
-            disabled={backfillMutation.isPending}
-          >
-            {backfillMutation.isPending ? 'Reconstruction en cours...' : 'Reconstruire l\'historique des cours'}
-          </button>
-          {backfillStatus && <div className="alert success">{backfillStatus}</div>}
-          {backfillError && <div className="alert error">{backfillError}</div>}
-          <div className="stale-panel">
-            <div className="stale-panel__header">
-              Actifs sans mise à jour récente
-              <span className="stale-panel__count">({staleAssets.length})</span>
+        <div className="settings-layout">
+          {/* Section Gestion des Portefeuilles */}
+          <section className="settings-section">
+            <div className="settings-section-header">
+              <h2>📊 Gestion des portefeuilles</h2>
+              <p className="muted">
+                Créez, modifiez ou supprimez vos portefeuilles (crypto, PEA, assurances vie, etc.).
+              </p>
             </div>
-            {staleLoading ? (
-              <div className="stale-panel__message">Analyse en cours...</div>
-            ) : staleAssetsError ? (
-              <div className="alert error" style={{ marginTop: '0.5rem' }}>
-                {staleAssetsError}
+
+            <div className="settings-card">
+              <h3 className="settings-card-title">Créer un nouveau portefeuille</h3>
+              
+              <form className="portfolio-form" onSubmit={handleCreatePortfolio}>
+                <div className="form-group">
+                  <label htmlFor="portfolio-name" className="form-label">
+                    Nom du portefeuille
+                  </label>
+                  <input
+                    id="portfolio-name"
+                    type="text"
+                    value={newPortfolioName}
+                    onChange={(event) => setNewPortfolioName(event.target.value)}
+                    placeholder="Ex. PEA croissance"
+                    className="input"
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label htmlFor="portfolio-category" className="form-label">
+                    Catégorie
+                  </label>
+                  <select
+                    id="portfolio-category"
+                    value={newPortfolioCategory}
+                    onChange={(event) => setNewPortfolioCategory(event.target.value as PortfolioCategory)}
+                    className="input"
+                  >
+                    {Object.entries(categoryLabels).map(([value, label]) => (
+                      <option key={value} value={value}>
+                        {label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="form-group">
+                  <label htmlFor="portfolio-color" className="form-label">
+                    Couleur personnalisée (optionnel)
+                  </label>
+                  <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+                    <input
+                      id="portfolio-color"
+                      type="color"
+                      value={newPortfolioColor || defaultColors[newPortfolioCategory]}
+                      onChange={(event) => setNewPortfolioColor(event.target.value)}
+                      className="input"
+                      style={{ width: '80px', height: '40px', padding: '0.25rem', cursor: 'pointer' }}
+                    />
+                    {newPortfolioColor && (
+                      <button
+                        type="button"
+                        onClick={() => setNewPortfolioColor('')}
+                        className="btn-sm btn-ghost"
+                        style={{ fontSize: '0.8rem' }}
+                      >
+                        Réinitialiser
+                      </button>
+                    )}
+                  </div>
+                  <p className="muted" style={{ fontSize: '0.8rem', margin: '0.5rem 0 0' }}>
+                    Par défaut : {categoryLabels[newPortfolioCategory]} → <span style={{ color: defaultColors[newPortfolioCategory] }}>●</span>
+                  </p>
+                </div>
+
+                <button 
+                  type="submit" 
+                  className="btn-primary-modern" 
+                  disabled={createPortfolioMutation.isPending}
+                >
+                  {createPortfolioMutation.isPending ? '⏳ Création...' : '➕ Ajouter le portefeuille'}
+                </button>
+              </form>
+
+              {portfolioStatus && (
+                <div className="alert-modern alert-success">
+                  <span className="alert-icon">✅</span>
+                  {portfolioStatus}
+                </div>
+              )}
+              {portfolioError && (
+                <div className="alert-modern alert-error">
+                  <span className="alert-icon">⚠️</span>
+                  {portfolioError}
+                </div>
+              )}
+            </div>
+
+            <div className="settings-card">
+              <h3 className="settings-card-title">Portefeuilles existants</h3>
+              
+              {portfoliosQuery.isLoading && (
+                <div className="loading-state">⏳ Chargement des portefeuilles...</div>
+              )}
+              
+              {portfoliosQuery.isError && (
+                <div className="alert-modern alert-error">
+                  <span className="alert-icon">⚠️</span>
+                  Impossible de charger les portefeuilles.
+                </div>
+              )}
+
+              {!portfoliosQuery.isLoading && !portfoliosQuery.isError && (
+                <div className="portfolios-list">
+                  {(portfoliosQuery.data ?? [])
+                    .filter((portfolio) => portfolio.category !== 'GLOBAL')
+                    .map((portfolio) => {
+                      const isEditing = editingId === portfolio.id;
+                      return (
+                        <div key={portfolio.id} className="portfolio-item">
+                          <div className="portfolio-item-content">
+                            {isEditing ? (
+                              <div className="portfolio-edit-form">
+                                <input
+                                  type="text"
+                                  className="input input-sm"
+                                  value={editingName}
+                                  onChange={(event) => setEditingName(event.target.value)}
+                                  placeholder="Nom du portefeuille"
+                                />
+                                <select 
+                                  className="input input-sm" 
+                                  value={editingCategory} 
+                                  onChange={(event) => setEditingCategory(event.target.value as PortfolioCategory)}
+                                >
+                                  {Object.entries(categoryLabels).map(([value, label]) => (
+                                    <option key={value} value={value}>
+                                      {label}
+                                    </option>
+                                  ))}
+                                </select>
+                                <input
+                                  type="color"
+                                  className="input input-sm"
+                                  value={editingColor || defaultColors[editingCategory]}
+                                  onChange={(event) => setEditingColor(event.target.value)}
+                                  style={{ width: '60px', padding: '0.25rem', cursor: 'pointer' }}
+                                  title="Couleur"
+                                />
+                              </div>
+                            ) : (
+                              <>
+                                <div className="portfolio-info">
+                                  <span 
+                                    style={{ 
+                                      width: '12px', 
+                                      height: '12px', 
+                                      borderRadius: '50%', 
+                                      backgroundColor: getPortfolioColor(portfolio),
+                                      display: 'inline-block',
+                                      flexShrink: 0,
+                                    }}
+                                  />
+                                  <h4 className="portfolio-name">{portfolio.name}</h4>
+                                  <span className={`portfolio-badge portfolio-badge-${portfolio.category.toLowerCase()}`}>
+                                    {categoryLabels[portfolio.category]}
+                                  </span>
+                                </div>
+                                <div className="portfolio-value">
+                                  {new Intl.NumberFormat('fr-FR', { 
+                                    style: 'currency', 
+                                    currency: 'EUR',
+                                    minimumFractionDigits: 2,
+                                    maximumFractionDigits: 2
+                                  }).format(portfolio.totalValue)}
+                                </div>
+                              </>
+                            )}
+                          </div>
+
+                          <div className="portfolio-item-actions">
+                            {isEditing ? (
+                              <>
+                                <button 
+                                  type="button" 
+                                  className="btn-sm btn-success" 
+                                  onClick={handleUpdatePortfolio} 
+                                  disabled={updatePortfolioMutation.isPending}
+                                >
+                                  {updatePortfolioMutation.isPending ? '⏳' : '✓ Valider'}
+                                </button>
+                                <button 
+                                  type="button" 
+                                  className="btn-sm btn-ghost" 
+                                  onClick={cancelEditing} 
+                                  disabled={updatePortfolioMutation.isPending}
+                                >
+                                  ✕ Annuler
+                                </button>
+                              </>
+                            ) : (
+                              <>
+                                <button 
+                                  type="button" 
+                                  className="btn-sm btn-edit" 
+                                  onClick={() => startEditing(portfolio)}
+                                  title="Modifier"
+                                >
+                                  ✏️ Modifier
+                                </button>
+                                <button 
+                                  type="button" 
+                                  className="btn-sm btn-delete" 
+                                  onClick={() => handleDeletePortfolio(portfolio)} 
+                                  disabled={deletePortfolioMutation.isPending}
+                                  title="Supprimer"
+                                >
+                                  🗑️
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+
+                  {portfoliosQuery.data && portfoliosQuery.data.filter(p => p.category !== 'GLOBAL').length === 0 && (
+                    <div className="empty-state">
+                      <span className="empty-state-icon">📭</span>
+                      <p>Aucun portefeuille pour le moment.</p>
+                      <p className="muted">Créez-en un ci-dessus pour commencer.</p>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </section>
+
+          {/* Section Maintenance */}
+          <aside className="settings-sidebar">
+            <section className="settings-section">
+              <div className="settings-section-header">
+                <h2>🔧 Maintenance</h2>
+                <p className="muted">Outils de gestion des données.</p>
               </div>
-            ) : staleAssets.length === 0 ? (
-              <div className="stale-panel__message">Tous les actifs possèdent un prix mis à jour aujourd&rsquo;hui.</div>
-            ) : (
-              <ul className="stale-panel__list">
-                {staleAssets.map((asset) => (
-                  <li key={asset.id} className="stale-panel__item">
-                    <div>
-                      <div className="stale-panel__asset">
-                        <span className="symbol">{asset.symbol}</span>
-                        <span>{asset.name}</span>
-                      </div>
-                      <div className="stale-panel__meta">
-                        Portefeuille&nbsp;: <strong>{asset.portfolioName}</strong>
-                      </div>
+
+              <div className="settings-card maintenance-card">
+                <div className="maintenance-item">
+                  <div className="maintenance-header">
+                    <h4>🔄 Reconstruire l'historique</h4>
+                    <p className="muted">
+                      Récupère les cours depuis votre première date d'achat (Yahoo Finance pour les titres, Binance pour les cryptos).
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    className="btn-secondary-modern"
+                    onClick={() => {
+                      setBackfillStatus('');
+                      setBackfillError('');
+                      backfillMutation.mutate();
+                    }}
+                    disabled={backfillMutation.isPending}
+                  >
+                    {backfillMutation.isPending ? '⏳ En cours...' : '🔄 Reconstruire'}
+                  </button>
+                  {backfillStatus && (
+                    <div className="alert-modern alert-success">
+                      <span className="alert-icon">✅</span>
+                      {backfillStatus}
                     </div>
-                    <div className="stale-panel__meta">
-                      Dernière mise à jour&nbsp;: <strong>{formatDateTime(asset.lastPriceUpdateAt ?? asset.lastPricePointAt)}</strong>
+                  )}
+                  {backfillError && (
+                    <div className="alert-modern alert-error">
+                      <span className="alert-icon">⚠️</span>
+                      {backfillError}
                     </div>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
+                  )}
+                </div>
+
+                <div className="maintenance-divider" />
+
+                <div className="maintenance-item">
+                  <div className="maintenance-header">
+                    <h4>🗑️ Réinitialiser toutes les données</h4>
+                    <p className="muted danger-text">
+                      ⚠️ Attention : Cette action supprime toutes les transactions, actifs et portefeuilles de manière irréversible.
+                    </p>
+                  </div>
+                  <button 
+                    type="button" 
+                    className="btn-danger-modern" 
+                    onClick={handleReset} 
+                    disabled={isResetLoading}
+                  >
+                    {isResetLoading ? '⏳ Suppression...' : '🗑️ Tout supprimer'}
+                  </button>
+                  {resetStatus && (
+                    <div className="alert-modern alert-success">
+                      <span className="alert-icon">✅</span>
+                      {resetStatus}
+                    </div>
+                  )}
+                  {resetError && (
+                    <div className="alert-modern alert-error">
+                      <span className="alert-icon">⚠️</span>
+                      {resetError}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="settings-card">
+                <div className="stale-assets-header">
+                  <h4>⏰ Actifs nécessitant une mise à jour</h4>
+                  <span className="stale-count">{staleAssets.length}</span>
+                </div>
+                
+                {staleLoading ? (
+                  <div className="loading-state">⏳ Analyse en cours...</div>
+                ) : staleAssetsError ? (
+                  <div className="alert-modern alert-error">
+                    <span className="alert-icon">⚠️</span>
+                    {staleAssetsError}
+                  </div>
+                ) : staleAssets.length === 0 ? (
+                  <div className="empty-state-sm">
+                    <span className="empty-state-icon">✅</span>
+                    <p>Tous les actifs sont à jour !</p>
+                  </div>
+                ) : (
+                  <ul className="stale-assets-list">
+                    {staleAssets.map((asset) => (
+                      <li key={asset.id} className="stale-asset-item">
+                        <div className="stale-asset-info">
+                          <span className="stale-asset-symbol">{asset.symbol}</span>
+                          <span className="stale-asset-name">{asset.name}</span>
+                        </div>
+                        <div className="stale-asset-meta">
+                          <span className="stale-portfolio">{asset.portfolioName}</span>
+                          <span className="stale-date">
+                            {formatDateTime(asset.lastPriceUpdateAt ?? asset.lastPricePointAt)}
+                          </span>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </section>
+          </aside>
         </div>
-      </section>
       </div>
     </main>
   );

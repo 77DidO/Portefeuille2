@@ -93,6 +93,7 @@ const computePortfolioTotals = (portfolio: Portfolio & { assets: AssetWithRelati
     id: portfolio.id,
     name: portfolio.name,
     category: portfolio.category as PortfolioSummary['category'],
+    color: portfolio.color,
     totalValue: roundCurrency(totalValue),
     investedValue: roundCurrency(investedValue),
     gainLossValue: roundCurrency(gainLossValue),
@@ -369,11 +370,12 @@ export const getPortfolioDetail = async (id: number): Promise<PortfolioDetail | 
   };
 };
 
-export const createPortfolio = (name: string, category: PortfolioSummary['category']) => {
+export const createPortfolio = (name: string, category: PortfolioSummary['category'], color?: string) => {
   return prisma.portfolio.create({
     data: {
       name,
       category,
+      color,
     },
   });
 };
