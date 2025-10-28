@@ -124,6 +124,40 @@ export const AssetAccordion = ({ assets, refreshTrigger }: AssetAccordionProps) 
     (value: number) => dateFormatter.format(new Date(value)),
     [dateFormatter],
   );
+  // Ajout refs pour scroll automatique
+  const cardRefs = useRef<Record<number, HTMLDivElement | null>>({});
+
+  useEffect(() => {
+    if (expandedId !== null && cardRefs.current[expandedId]) {
+      // Attendre que l'animation d'ouverture soit terminée
+      setTimeout(() => {
+        const element = cardRefs.current[expandedId];
+        if (!element) return;
+        const rect = element.getBoundingClientRect();
+        const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
+        const headerHeight = 150; // Hauteur du header sticky + marge de sécurité généreuse
+        const targetY = Math.max(0, rect.top + scrollTop - headerHeight);
+        const duration = 600;
+        const startY = window.scrollY;
+        const diff = targetY - startY;
+        
+        let start: number | undefined;
+        function step(timestamp: number) {
+          if (!start) start = timestamp;
+          const elapsed = timestamp - start;
+          const progress = Math.min(elapsed / duration, 1);
+          window.scrollTo(0, startY + diff * easeInOutQuad(progress));
+          if (progress < 1) {
+            window.requestAnimationFrame(step);
+          }
+        }
+        function easeInOutQuad(t: number) {
+          return t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
+        }
+        window.requestAnimationFrame(step);
+      }, 250);
+    }
+  }, [expandedId]);
 
   const loadAssetDetail = useCallback(async (assetId: number) => {
     try {
@@ -210,7 +244,7 @@ export const AssetAccordion = ({ assets, refreshTrigger }: AssetAccordionProps) 
 
   return (
     <div className="asset-list">
-      {assets.map((asset) => {
+  {assets.map((asset) => {
         const isExpanded = expandedId === asset.id;
         const assetDetail = details[asset.id];
         const trend = computeTrendMetrics(asset.trend);
@@ -250,7 +284,11 @@ export const AssetAccordion = ({ assets, refreshTrigger }: AssetAccordionProps) 
           asset.latestPrice !== null ? formatCurrency(asset.latestPrice) : '-';
 
         return (
-          <div key={asset.id} className="asset-card">
+          <div
+            key={asset.id}
+            className="asset-card"
+            ref={el => { cardRefs.current[asset.id] = el; }}
+          >
             <div
               className={clsx('asset-row', { 'asset-row--expanded': isExpanded })}
               onClick={() => toggleAsset(asset.id)}
