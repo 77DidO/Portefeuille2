@@ -12,6 +12,7 @@ export interface PortfolioSummary {
   gainLossValue: number;
   gainLossPercentage: number;
   cashValue?: number;
+  dividendsValue?: number;
   assets: AssetSummary[];
 }
 
@@ -91,6 +92,7 @@ export interface PortfolioDetail extends PortfolioSummary {
   priceHistory: TrendPoint[];
   investedHistory: TrendPoint[];
   cashHistory?: TrendPoint[];
+  dividendsHistory?: TrendPoint[];
 }
 
 export interface ImportRequestBody {
