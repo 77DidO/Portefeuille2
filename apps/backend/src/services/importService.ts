@@ -253,6 +253,15 @@ const parseCreditAgricole = (records: CsvRecord[]): ParsedRow[] => {
     }
 
     const transactionTypeForCash = amountNet > 0 ? 'BUY' : 'SELL';
+    
+    // Determine the source type for cash transactions
+    let cashSource = 'credit-agricole';
+    if (operation.includes('coupon') || operation.includes('dividende')) {
+      cashSource = 'dividend';
+    } else if (operation.includes('remboursement') && operation.includes('plaf')) {
+      cashSource = 'tax-refund';
+    }
+    
     transactions.push({
       symbol: PEA_CASH_SYMBOL,
       name: PEA_CASH_NAME,
@@ -261,7 +270,7 @@ const parseCreditAgricole = (records: CsvRecord[]): ParsedRow[] => {
       price: 1,
       quantity: Math.abs(amountNet),
       transactionType: transactionTypeForCash,
-      source: 'credit-agricole',
+      source: cashSource,
     });
   });
 
@@ -835,13 +844,18 @@ export const importCsv = async (portfolioId: number, source: keyof typeof parser
       ),
     );
 
-    for (const assetId of assetIds) {
-      try {
-        await refreshAssetPrice(assetId);
-      } catch {
-        // Ignore refresh errors here; manual refresh remains available.
-      }
-    }
+    // Trigger price refresh in background after import (non-blocking)
+    setImmediate(() => {
+      (async () => {
+        for (const assetId of assetIds) {
+          try {
+            await refreshAssetPrice(assetId);
+          } catch {
+            // Ignore refresh errors; manual refresh remains available.
+          }
+        }
+      })();
+    });
   }
 
   return { imported: createdCount, skipped: skippedCount };
