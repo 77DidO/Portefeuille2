@@ -1,6 +1,5 @@
 'use client';
 
-import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { ImportForm } from '@/components/ImportForm';
@@ -16,14 +15,8 @@ export function ImportPageContent() {
 
   return (
     <main>
+      <div className="page-inner">
       <div className="page-header">
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
-          <Link href="/" className="primary-link">
-            ← Retour au tableau de bord
-          </Link>
-          <span style={{ color: 'rgba(148, 163, 184, 0.5)' }}>•</span>
-          <span style={{ color: '#94a3b8', fontSize: '0.9rem' }}>Import de flux externes</span>
-        </div>
         <h1>Imports CSV</h1>
         <p>
           Chargez les exports de vos banques et plateformes crypto pour enrichir automatiquement vos portefeuilles.
@@ -43,27 +36,31 @@ export function ImportPageContent() {
       <section className="dashboard-grid" style={{ marginBottom: '2rem' }}>
         <div className="card" style={{ gridColumn: 'span 12' }}>
           <h2>Importer un fichier CSV</h2>
-          <p style={{ marginTop: 0, color: '#94a3b8' }}>
-            Sélectionnez le portefeuille cible puis glissez votre export Crédit Agricole, Binance ou Coinbase. Nous
-            détectons automatiquement les colonnes attendues.
+          <p className="muted" style={{ marginTop: 0, marginBottom: '0.5rem' }}>
+            Sélectionnez le portefeuille cible puis glissez votre export Crédit Agricole, Binance ou Coinbase.
           </p>
           <ImportForm portfolios={portfolios} />
         </div>
       </section>
 
       <section className="dashboard-grid">
-        <div className="card" style={{ gridColumn: 'span 12', display: 'grid', gap: '0.75rem' }}>
-          <h2>Conseils pour un import optimal</h2>
-          <ul style={{ margin: 0, paddingLeft: '1.1rem', color: '#94a3b8', lineHeight: 1.6 }}>
-            <li>Vérifiez que les entêtes des fichiers n’ont pas été modifiées après export.</li>
-            <li>
-              Les montants négatifs représentent des sorties (ventes, dépenses), les montants positifs des entrées (achats,
-              dépôts).
-            </li>
-            <li>Vous pouvez relancer un import : les transactions existantes sont mises à jour ou fusionnées si besoin.</li>
-          </ul>
+        <div className="card" style={{ gridColumn: 'span 12', padding: '0.9rem 1rem' }}>
+          <details>
+            <summary style={{ cursor: 'pointer', fontWeight: 600, color: '#cbd5e1', fontSize: '0.9rem' }}>
+              💡 Conseils pour un import optimal
+            </summary>
+            <ul className="muted" style={{ margin: '0.5rem 0 0', paddingLeft: '1.3rem', lineHeight: 1.6, fontSize: '0.85rem' }}>
+              <li>Vérifiez que les entêtes des fichiers n'ont pas été modifiées après export.</li>
+              <li>
+                Les montants négatifs représentent des sorties (ventes, dépenses), les montants positifs des entrées (achats,
+                dépôts).
+              </li>
+              <li>Vous pouvez relancer un import : les transactions existantes sont mises à jour ou fusionnées si besoin.</li>
+            </ul>
+          </details>
         </div>
       </section>
+      </div>
     </main>
   );
 }

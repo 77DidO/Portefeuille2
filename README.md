@@ -38,6 +38,50 @@ npm run build
 - `apps/frontend` : Interface Next.js (Recharts, React Query)
 - `packages/types` : Types TypeScript partagés
 
+## Interface utilisateur
+
+L'application propose 4 pages principales :
+
+### 1. Tableau de bord (`/`)
+- Vue d'ensemble de tous vos portefeuilles
+- Cartes récapitulatives avec valeur totale, capital investi, plus/moins-value
+- Graphique d'évolution avec périodes sélectionnables (1M, 3M, 6M, Tout)
+- Liste détaillée des actifs par portefeuille
+
+### 2. Historique (`/history`)
+- Liste paginée de toutes les transactions
+- Filtres par portefeuille, type d'opération et période
+- Recherche par symbole ou nom d'actif
+- Affichage des détails : date, type, quantité, prix unitaire, montant total
+
+### 3. Imports CSV (`/import`)
+- Formulaire condensé avec sélection de portefeuille et source
+- Support de 3 formats :
+  - **Crédit Agricole (PEA)** : Date, Libellé, Quantité, Prix unitaire, Sens
+  - **Binance (Crypto)** : Date(UTC), Pair, Side, Price, Amount
+  - **Coinbase (Crypto)** : Timestamp, Asset, Transaction Type, Quantity, Spot Price
+- Bouton de sélection de fichier personnalisé
+- Section de conseils collapsible pour optimiser l'import
+
+### 4. Configuration (`/settings`)
+- **Gestion des portefeuilles** (colonne gauche, large) :
+  - Création de nouveaux portefeuilles avec nom et catégorie
+  - Modification/suppression des portefeuilles existants
+  - Tableau récapitulatif avec valeur actuelle
+- **Maintenance des données** (colonne droite, compacte) :
+  - Réinitialisation complète de la base de données
+  - Reconstruction de l'historique des cours
+  - Liste des actifs nécessitant une mise à jour de prix
+
+### Améliorations UX récentes
+
+- **Design unifié** : toutes les pages utilisent la même largeur centrée (`min(1320px, 92vw)`)
+- **Formulaires harmonisés** : inputs avec style cohérent, labels `.form-label`, classe `.input` pour tous les champs
+- **Navigation simplifiée** : suppression des breadcrumbs redondants
+- **Layout responsive** : grilles qui s'adaptent sur mobile (colonnes empilées)
+- **File input personnalisé** : bouton "Choisir un fichier" stylisé affichant le nom du fichier sélectionné
+- **Classes utilitaires** : `.muted`, `.form-row`, `.card-actions`, `.page-inner` pour un code plus maintenable
+
 ## Base de données
 
 La base SQLite est stockée dans `apps/backend/prisma/dev.db`.
