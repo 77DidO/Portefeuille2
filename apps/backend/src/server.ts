@@ -7,6 +7,7 @@ import assetRoutes from './routes/assetRoutes.js';
 import transactionRoutes from './routes/transactionRoutes.js';
 import importRoutes from './routes/importRoutes.js';
 import systemRoutes from './routes/systemRoutes.js';
+import backupRoutes from './routes/backupRoutes.js';
 import { ensureGlobalPortfolio } from './services/importService.js';
 import { loadEnv, getEnv } from './config/env.js';
 import { createLogger, getLogger } from './utils/logger.js';
@@ -54,6 +55,7 @@ app.use('/api/assets', assetRoutes);
 app.use('/api/transactions', transactionRoutes);
 app.use('/api/import', importRoutes);
 app.use('/api/system', systemRoutes);
+app.use('/api/backup', backupRoutes);
 
 // 404 handler for unknown routes
 app.use(notFoundHandler);

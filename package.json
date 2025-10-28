@@ -12,6 +12,9 @@
     "lint": "npm run lint --workspace frontend",
     "format": "node scripts/format.mjs",
     "test:cache": "node scripts/test-cache.mjs",
+    "backup": "node scripts/backup.mjs",
+    "backup:compress": "node scripts/backup.mjs --compress",
+    "restore": "node scripts/restore.mjs",
     "postinstall": "npm run build --workspace @portefeuille/types"
   },
   "devDependencies": {}

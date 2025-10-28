@@ -2061,6 +2061,26 @@ form.import-form textarea {
   padding: 0.4rem 0.9rem;
   font-size: 0.85rem;
   border-radius: var(--radius-sm);
+}
+
+/* Specific modifiers for primary/secondary/danger when combined with btn-sm */
+.btn-primary-modern.btn-sm {
+  padding: 0.5rem 1rem;
+  font-size: 0.875rem;
+}
+
+.btn-secondary-modern.btn-sm {
+  padding: 0.5rem 1rem;
+  font-size: 0.875rem;
+}
+
+.btn-danger-modern.btn-sm {
+  padding: 0.5rem 1rem;
+  font-size: 0.875rem;
+}
+
+/* Generic btn-sm for standalone small buttons (edit, delete, etc.) */
+.btn-sm:not(.btn-primary-modern):not(.btn-secondary-modern):not(.btn-danger-modern) {
   border: none;
   cursor: pointer;
   font-weight: 500;
@@ -2261,9 +2281,9 @@ form.import-form textarea {
 }
 
 .empty-state-icon {
-  font-size: 3rem;
+  font-size: 1.5rem;
   display: block;
-  margin-bottom: 1rem;
+  margin-bottom: 0.75rem;
   opacity: 0.5;
 }
 
@@ -2278,7 +2298,7 @@ form.import-form textarea {
 }
 
 .empty-state-sm .empty-state-icon {
-  font-size: 2rem;
+  font-size: 1.25rem;
   margin-bottom: 0.5rem;
 }
 

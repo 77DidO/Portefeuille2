@@ -2,13 +2,14 @@
 
 Application full-stack (Express + Next.js + SQLite) pour centraliser la visualisation de portefeuilles (PEA, crypto, etc.).
 
-**Version actuelle** : 2.1.0 | **Dernière mise à jour** : Octobre 2025
+**Version actuelle** : 2.2.0 | **Dernière mise à jour** : Octobre 2025
 
 ## 📚 Documentation
 
 - 📖 **[DOC_INDEX.md](./DOC_INDEX.md)** - Index complet de toute la documentation
 - 🚀 **[QUICKSTART_REDIS.md](./QUICKSTART_REDIS.md)** - Démarrage rapide avec Redis
 - ⚡ **[REDIS_CACHE.md](./REDIS_CACHE.md)** - Guide complet du cache
+- 💾 **[BACKUP_GUIDE.md](./BACKUP_GUIDE.md)** - Guide de sauvegarde et restauration
 - 🔒 **[SECURITY.md](./SECURITY.md)** - Guide de sécurité
 - 🗺️ **[ROADMAP.md](./ROADMAP.md)** - Plan de développement
 - 📋 **[VERSION_HISTORY.md](./VERSION_HISTORY.md)** - Historique des versions
@@ -94,6 +95,38 @@ npm run build
 ```
 
 > Le build ignore ESLint côté Next.js (`eslint.ignoreDuringBuilds`). Utilisez `npm run lint --workspace frontend` pour lancer un lint manuel.
+
+## Sauvegarde et restauration
+
+### Créer un backup
+
+```bash
+# Backup simple
+npm run backup
+
+# Backup avec compression (recommandé, -78% taille)
+npm run backup:compress
+```
+
+### Restaurer un backup
+
+```bash
+# Lister les backups disponibles
+npm run restore
+
+# Restaurer un backup spécifique
+npm run restore backup_2025-10-28T20-45-32.db.gz
+```
+
+**Fonctionnalités** :
+- ✅ Sauvegarde à la demande (pas d'automatisation nécessaire)
+- ✅ Compression Gzip optionnelle (économise 70-80% d'espace)
+- ✅ Validation SHA256 pour vérifier l'intégrité
+- ✅ Rotation automatique (garde les 30 derniers backups)
+- ✅ Backup de sécurité avant restauration
+- ✅ API REST pour intégration frontend (`/api/backup`)
+
+**Documentation complète** : Voir [BACKUP_GUIDE.md](./BACKUP_GUIDE.md)
 
 ## Structure des dossiers
 

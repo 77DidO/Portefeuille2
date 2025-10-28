@@ -49,6 +49,8 @@ export const ImportForm = ({ portfolios }: ImportFormProps) => {
     }
     try {
       setIsLoading(true);
+
+
       const text = await csvFile.text();
       const response = await api.importCsv({ portfolioId, source, csv: text });
       await queryClient.invalidateQueries({ queryKey: ['portfolios'] });
@@ -133,13 +135,12 @@ export const ImportForm = ({ portfolios }: ImportFormProps) => {
             </label>
           </div>
         </div>
-
-        <div className="form-field" style={{ alignSelf: 'flex-end' }}>
-          <button className="primary" type="submit" disabled={disabled} style={{ width: '100%' }}>
-            {isLoading ? 'Import en cours...' : 'Importer'}
-          </button>
-        </div>
       </div>
+
+
+      <button type="submit" className="btn-primary-modern w-full" disabled={disabled}>
+        {isLoading ? 'Import en cours…' : 'Importer'}
+      </button>
 
       <p className="muted" style={{ fontSize: '0.75rem', margin: '0.5rem 0 0' }}>
         Formats attendus : Crédit Agricole (Date, Libellé, Quantité, Prix unitaire, Sens) • Binance (Date(UTC), Pair, Side, Price, Amount) • Coinbase (Timestamp, Asset, Transaction Type, Quantity, Spot Price)

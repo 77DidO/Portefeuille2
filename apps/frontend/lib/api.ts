@@ -110,6 +110,43 @@ export const api = {
     method: 'POST',
     body: JSON.stringify({ enabled }),
     headers: { 'Content-Type': 'application/json' },
-  })
-};
+  }),
 
+  // Backup management
+  getBackups: () => request<{
+    success: boolean;
+    count: number;
+    backups: Array<{
+      filename: string;
+      size: number;
+      createdAt: string;
+      compressed: boolean;
+    }>;
+  }>(`/backup`),
+  
+  createBackup: (compress: boolean = true) => request<{
+    success: boolean;
+    message: string;
+    compressed: boolean;
+    stats: {
+      portfolios: number;
+      assets: number;
+      transactions: number;
+    };
+  }>(`/backup`, {
+    method: 'POST' satisfies HttpMethod,
+    body: JSON.stringify({ compress }),
+  }),
+  
+  deleteBackup: (filename: string) => request<{
+    success: boolean;
+    message: string;
+  }>(`/backup/${filename}`, {
+    method: 'DELETE' satisfies HttpMethod,
+  }),
+  
+  downloadBackup: (filename: string) => {
+    // Ouvre le fichier dans un nouvel onglet pour téléchargement
+    window.open(`${API_URL}/backup/download/${filename}`, '_blank');
+  },
+};
