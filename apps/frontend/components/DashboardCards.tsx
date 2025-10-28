@@ -25,6 +25,7 @@ const computeGlobalMetrics = (portfolios: PortfolioSummary[]) => {
   const investedValue = portfolios.reduce((acc, p) => acc + p.investedValue, 0);
   const gainLoss = portfolios.reduce((acc, p) => acc + p.gainLossValue, 0);
   const gainLossPercentage = investedValue !== 0 ? (gainLoss / investedValue) * 100 : 0;
+  const dividendsTotal = portfolios.reduce((acc, p) => acc + (p.dividendsValue ?? 0), 0);
   const cashTotal = portfolios
     .flatMap((portfolio) => portfolio.assets)
     .filter((asset) => {
@@ -32,7 +33,7 @@ const computeGlobalMetrics = (portfolios: PortfolioSummary[]) => {
       return symbol === 'PEA_CASH' || symbol === '_PEA_CASH' || symbol === 'CASH';
     })
     .reduce((acc, asset) => acc + asset.marketValue, 0);
-  return { totalValue, investedValue, gainLoss, gainLossPercentage, cashTotal };
+  return { totalValue, investedValue, gainLoss, gainLossPercentage, cashTotal, dividendsTotal };
 };
 
 const categoryLabel: Record<PortfolioSummary['category'], string> = {
@@ -67,7 +68,7 @@ export const DashboardCards = ({
   const visiblePortfolios = portfolios.filter(
     (portfolio) => portfolio.category !== 'GLOBAL' && portfolio.assets.length > 0,
   );
-  const { totalValue, investedValue, gainLoss, gainLossPercentage, cashTotal: cashFromAssets } =
+  const { totalValue, investedValue, gainLoss, gainLossPercentage, cashTotal: cashFromAssets, dividendsTotal } =
     computeGlobalMetrics(visiblePortfolios);
   const cashFromSummary = visiblePortfolios.reduce(
     (acc, portfolio) => acc + (portfolio.cashValue ?? 0),
@@ -146,6 +147,25 @@ export const DashboardCards = ({
         <svg width="18" height="18" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
           <circle cx="10" cy="10" r="5.5" stroke="currentColor" strokeWidth="1.6" />
           <path d="M10 7.5v5M8.25 9.5h3.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+        </svg>
+      ),
+    },
+    {
+      key: 'dividends',
+      label: 'Dividendes & remboursements',
+      value: formatCurrency(dividendsTotal),
+      accent: 'rgba(139, 92, 246, 0.18)',
+      valueClass: dividendsTotal > 0 ? 'delta positive' : undefined,
+      icon: (
+        <svg width="18" height="18" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path
+            d="M10 3v14M6 7l4-4 4 4"
+            stroke="currentColor"
+            strokeWidth="1.6"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+          <path d="M7 13h6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
         </svg>
       ),
     },
@@ -479,6 +499,12 @@ export const DashboardCards = ({
                           <div>Tresorerie</div>
                           <div style={{ color: '#cbd5f5', fontWeight: 500 }}>{formatCurrency(portfolio.cashValue ?? 0)}</div>
                         </div>
+                        {portfolio.dividendsValue !== undefined && portfolio.dividendsValue > 0 && (
+                          <div>
+                            <div>Dividendes</div>
+                            <div style={{ color: '#a78bfa', fontWeight: 500 }}>{formatCurrency(portfolio.dividendsValue)}</div>
+                          </div>
+                        )}
                         <div>
                           <div>Actifs suivis</div>
                           <div style={{ color: '#cbd5f5', fontWeight: 500 }}>{trackedAssetCount}</div>
@@ -680,6 +706,23 @@ export const DashboardCards = ({
                         {formatCurrency(portfolio.cashValue ?? 0)}
                       </div>
                     </div>
+                    {portfolio.dividendsValue !== undefined && portfolio.dividendsValue > 0 && (
+                      <div>
+                        <div
+                          style={{
+                            color: '#94a3b8',
+                            fontSize: '0.65rem',
+                            textTransform: 'uppercase',
+                            letterSpacing: '0.08em',
+                          }}
+                        >
+                          Dividendes
+                        </div>
+                        <div style={{ color: '#a78bfa', fontWeight: 600, fontSize: '1rem', marginTop: '0.35rem' }}>
+                          {formatCurrency(portfolio.dividendsValue)}
+                        </div>
+                      </div>
+                    )}
                     <div style={{ display: 'flex', gap: '1.1rem', flexWrap: 'wrap' }}>
                       <div>
                         <div

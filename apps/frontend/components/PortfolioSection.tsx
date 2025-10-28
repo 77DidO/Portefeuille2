@@ -49,10 +49,17 @@ export const PortfolioSection = ({ portfolio, refreshTrigger }: PortfolioSection
       ts: new Date(point.date).getTime(),
       value: typeof point.value === 'number' ? point.value : Number(point.value ?? 0),
     }));
+    const dividendsSeries = (detail.dividendsHistory ?? []).map((point) => ({
+      ts: new Date(point.date).getTime(),
+      value: typeof point.value === 'number' ? point.value : Number(point.value ?? 0),
+    }));
+    
     let investedIdx = 0;
     let cashIdx = 0;
+    let dividendsIdx = 0;
     let lastInvested = investedSeries[0]?.value ?? 0;
     let lastCash = cashSeries[0]?.value ?? 0;
+    let lastDividends = dividendsSeries[0]?.value ?? 0;
 
     const lastTimestamp = new Date(detail.priceHistory[detail.priceHistory.length - 1].date).getTime();
     const rangeDays = rangeLookup[dateRange];
@@ -66,13 +73,19 @@ export const PortfolioSection = ({ portfolio, refreshTrigger }: PortfolioSection
           lastInvested = investedSeries[investedIdx].value;
           investedIdx += 1;
         }
-      while (cashIdx < cashSeries.length && cashSeries[cashIdx].ts <= timestamp) {
-        lastCash = cashSeries[cashIdx].value;
-        cashIdx += 1;
-      }
+        while (cashIdx < cashSeries.length && cashSeries[cashIdx].ts <= timestamp) {
+          lastCash = cashSeries[cashIdx].value;
+          cashIdx += 1;
+        }
+        while (dividendsIdx < dividendsSeries.length && dividendsSeries[dividendsIdx].ts <= timestamp) {
+          lastDividends = dividendsSeries[dividendsIdx].value;
+          dividendsIdx += 1;
+        }
+        
         let pointValue = typeof point.value === 'number' ? point.value : Number(point.value ?? 0);
         let investedValue = lastInvested;
         let cashValue = lastCash;
+        let dividendsValue = lastDividends;
         const assetsValue = pointValue - cashValue;
         if (investedValue > 0 && assetsValue <= 0) {
           pointValue = investedValue + cashValue;
@@ -82,6 +95,7 @@ export const PortfolioSection = ({ portfolio, refreshTrigger }: PortfolioSection
           value: pointValue,
           invested: investedValue,
           cash: cashValue,
+          dividends: dividendsValue,
         };
       })
       .filter((point) => point.date >= cutoffTimestamp);
@@ -112,6 +126,8 @@ export const PortfolioSection = ({ portfolio, refreshTrigger }: PortfolioSection
     const valueEntry = payload.find((entry) => entry.dataKey === 'value');
     const investedEntry = payload.find((entry) => entry.dataKey === 'invested');
     const cashEntry = payload.find((entry) => entry.dataKey === 'cash');
+    const dividendsEntry = payload.find((entry) => entry.dataKey === 'dividends');
+    
     const pointValueRaw = valueEntry?.value;
     const pointValue =
       typeof pointValueRaw === 'number' ? pointValueRaw : Number(pointValueRaw ?? 0);
@@ -135,6 +151,17 @@ export const PortfolioSection = ({ portfolio, refreshTrigger }: PortfolioSection
                 ? (valueEntry.payload as any)?.cash
                 : cashValue ?? 0),
           );
+    const dividendsRaw = dividendsEntry?.value;
+    const dividendsForTooltip =
+      typeof dividendsRaw === 'number'
+        ? dividendsRaw
+        : Number(
+            dividendsRaw ??
+              (valueEntry && typeof valueEntry.payload === 'object'
+                ? (valueEntry.payload as any)?.dividends
+                : 0),
+          );
+    
     let assetValue = pointValue - cashForTooltip;
     if (investedValue > 0 && assetValue <= 0) {
       assetValue = investedValue;
@@ -161,6 +188,11 @@ export const PortfolioSection = ({ portfolio, refreshTrigger }: PortfolioSection
         <div style={{ marginBottom: '0.2rem' }}>Solde de tresorerie : {format(cashForTooltip)}</div>
         <div style={{ marginBottom: '0.2rem' }}>Valeur hors tresorerie : {format(assetValue)}</div>
         <div style={{ marginBottom: '0.2rem' }}>Capital investi : {format(investedValue)}</div>
+        {dividendsForTooltip > 0 && (
+          <div style={{ marginBottom: '0.2rem', color: '#a78bfa' }}>
+            Dividendes : {format(dividendsForTooltip)}
+          </div>
+        )}
         <div style={{ color: deltaColor }}>
           Plus/moins-value : {delta >= 0 ? '+' : ''}
           {format(delta)}
