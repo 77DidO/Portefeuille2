@@ -547,6 +547,11 @@ export const DashboardCards = ({
             gap: '0.85rem',
             alignItems: 'stretch',
             width: '100%',
+            position: 'sticky',
+            top: '150px',
+            alignSelf: 'flex-start',
+            maxHeight: 'calc(100vh - 170px)',
+            overflowY: 'auto',
           }}
         >
           {visiblePortfolios.map((portfolio) => {
