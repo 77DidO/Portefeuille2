@@ -85,7 +85,10 @@ export const cachePrice = async (
     logger.debug({ symbol, price, ttl: cacheTtl }, 'Price cached');
   } catch (error) {
     const logger = getLogger();
-    logger.warn({ error, symbol }, 'Failed to cache price');
+    logger.warn({
+      error: error instanceof Error ? { message: error.message, stack: error.stack } : error,
+      symbol
+    }, 'Failed to cache price');
   }
 };
 
@@ -105,7 +108,10 @@ export const getCachedPrice = async (symbol: string): Promise<number | null> => 
     return null;
   } catch (error) {
     const logger = getLogger();
-    logger.warn({ error, symbol }, 'Failed to get cached price');
+    logger.warn({
+      error: error instanceof Error ? { message: error.message, stack: error.stack } : error,
+      symbol
+    }, 'Failed to get cached price');
     return null;
   }
 };

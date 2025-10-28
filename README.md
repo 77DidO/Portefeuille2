@@ -185,22 +185,26 @@ Les logs utilisent Pino pour un format JSON structuré en production :
 - Erreurs de validation Zod automatiquement formatées
 - Logging centralisé de toutes les erreurs
 
-### Cache Redis
 
-L'application utilise Redis pour mettre en cache les prix récupérés des APIs externes (Yahoo Finance, Binance) :
-- **TTL configurable** : durée de vie du cache (défaut: 1 heure)
-- **Clés préfixées** : `yahoo:SYMBOL` et `binance:PAIR`
-- **Graceful degradation** : si Redis n'est pas disponible, les appels API fonctionnent normalement
+### Cache Redis (optionnel)
+
+L'application peut utiliser Redis pour mettre en cache les prix récupérés des APIs externes (Yahoo Finance, Binance).
+
+- **Activation/désactivation** :
+  - Par défaut, Redis est désactivé (`REDIS_ENABLED=false` dans `.env`).
+  - Vous pouvez activer/désactiver Redis à chaud via le panneau de configuration (onglet "Paramètres") ou en modifiant `.env` puis en redémarrant le backend.
+  - Si Redis n'est pas disponible ou désactivé, l'application fonctionne normalement (graceful degradation).
+- **Prérequis** :
+  - Redis doit être installé et accessible (voir `docker-compose.yml` ou guide d'installation).
+  - Les variables d'environnement `REDIS_ENABLED`, `REDIS_HOST`, `REDIS_PORT` et `PRICE_CACHE_TTL` sont documentées dans `.env.example`.
 - **Fonctionnalités** :
-  - `cachePrice(symbol, price)` : stocke un prix
-  - `getCachedPrice(symbol)` : récupère un prix en cache
-  - `invalidatePriceCache(symbol)` : invalide le cache d'un symbole
-  - `getCacheStats()` : statistiques (nombre de clés, mémoire utilisée)
+  - Mise en cache des prix avec TTL configurable (défaut : 1h)
+  - Réduction des appels API externes et accélération des temps de réponse
+  - Endpoints d'administration du cache (`/api/system/cache/*`)
+- **Documentation détaillée** :
+  - Voir [REDIS_IMPLEMENTATION.md](./REDIS_IMPLEMENTATION.md) pour l'architecture, les flux, les scripts de test, et les bonnes pratiques.
 
-**Bénéfices** :
-- Réduction de 90%+ des appels API externes
-- Temps de réponse < 10ms vs 100-500ms pour les appels API
-- Protection contre les rate limits des APIs externes
+**Résumé** : Redis est recommandé pour la performance, mais reste optionnel et désactivable à tout moment.
 
 ## Variables d'environnement
 

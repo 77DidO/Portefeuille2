@@ -1,4 +1,11 @@
+
 # ✅ Implémentation du Cache Redis - Résumé
+
+> ℹ️ **Redis est optionnel** :
+> - Par défaut, le cache Redis est désactivé (`REDIS_ENABLED=false` dans `.env`).
+> - Vous pouvez activer/désactiver Redis à chaud via l'interface (onglet "Paramètres") ou en modifiant `.env` puis en redémarrant le backend.
+> - Si Redis n'est pas disponible ou désactivé, l'application continue de fonctionner normalement (fallback automatique, logs d'avertissement).
+> - Voir le README pour un résumé, ce fichier pour l'architecture détaillée.
 
 ## 🎯 Objectif
 

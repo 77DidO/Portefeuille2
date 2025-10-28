@@ -104,5 +104,12 @@ export const api = {
     const query = searchParams.toString();
     return request<TransactionHistoryItem[]>(`/transactions${query ? `?${query}` : ''}`);
   },
+  // Redis cache toggle
+  getRedisEnabled: () => request<{ enabled: boolean }>(`/system/cache/enabled`),
+  setRedisEnabled: (enabled: boolean) => request<{ enabled: boolean }>(`/system/cache/enabled`, {
+    method: 'POST',
+    body: JSON.stringify({ enabled }),
+    headers: { 'Content-Type': 'application/json' },
+  })
 };
 
