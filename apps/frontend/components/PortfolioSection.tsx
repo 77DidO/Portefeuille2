@@ -225,7 +225,35 @@ export const PortfolioSection = ({ portfolio, refreshTrigger }: PortfolioSection
           Chargement de l'historique...
         </div>
       )}
-      {!detailQuery.isLoading && chartData.length > 0 && (
+      {detailQuery.isError && (
+        <div
+          style={{
+            padding: '0.9rem',
+            borderRadius: '0.75rem',
+            background: 'rgba(248, 113, 113, 0.1)',
+            border: '1px solid rgba(248, 113, 113, 0.3)',
+            color: '#fca5a5',
+            fontSize: '0.9rem',
+          }}
+        >
+          Erreur lors du chargement de l'historique.
+        </div>
+      )}
+      {!detailQuery.isLoading && detailQuery.data && chartData.length === 0 && (
+        <div
+          style={{
+            padding: '0.9rem',
+            borderRadius: '0.75rem',
+            background: 'rgba(15, 23, 42, 0.45)',
+            color: '#94a3b8',
+            fontSize: '0.9rem',
+            textAlign: 'center',
+          }}
+        >
+          Aucune donnée d'historique disponible pour ce portefeuille.
+        </div>
+      )}
+      {!detailQuery.isLoading && detailQuery.data && chartData.length > 0 && (
         <div
           style={{
             flex: '1 1 auto',
