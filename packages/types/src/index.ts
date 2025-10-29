@@ -92,7 +92,8 @@ export interface AssetDetail extends AssetSummary {
 
 export interface PortfolioDetail extends PortfolioSummary {
   priceHistory: TrendPoint[];
-  investedHistory: TrendPoint[];
+  investedHistory: TrendPoint[]; // Capital total investi (versements)
+  investedInAssetsHistory?: TrendPoint[]; // Coût d'achat des actifs (pour calcul +/- value)
   cashHistory?: TrendPoint[];
   dividendsHistory?: TrendPoint[];
 }

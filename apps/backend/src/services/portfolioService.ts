@@ -471,6 +471,7 @@ export const getPortfolioDetail = async (id: number): Promise<PortfolioDetail | 
       timestamp: number;
       assets: number;
       cash?: number;
+      investedFromDeposits?: number;
       investedInAssets?: number;
     }
   >();
@@ -493,6 +494,17 @@ export const getPortfolioDetail = async (id: number): Promise<PortfolioDetail | 
     }
   });
 
+  // Ajouter les versements de cash détectés au combined map
+  investedDaily.forEach((entry, dayKey) => {
+    const existing = combined.get(dayKey);
+    if (existing) {
+      existing.timestamp = Math.max(existing.timestamp, entry.timestamp);
+      existing.investedFromDeposits = entry.value;
+    } else {
+      combined.set(dayKey, { timestamp: entry.timestamp, assets: 0, investedFromDeposits: entry.value });
+    }
+  });
+
   // Ajouter les dividendes au combined map
   dividendsDaily.forEach((entry, dayKey) => {
     const existing = combined.get(dayKey);
@@ -507,17 +519,22 @@ export const getPortfolioDetail = async (id: number): Promise<PortfolioDetail | 
     (a, b) => a[1].timestamp - b[1].timestamp,
   );
   let lastCashValue = 0;
+  let lastInvestedFromDeposits = 0;
   let lastInvestedInAssets = 0;
   let lastDividendsValue = 0;
   
   const priceHistory: TrendPoint[] = [];
   const cashHistory: TrendPoint[] = [];
   const investedHistory: TrendPoint[] = [];
+  const investedInAssetsHistory: TrendPoint[] = [];
   const dividendsHistory: TrendPoint[] = [];
 
   sortedCombined.forEach(([dayKey, entry]) => {
     if (typeof entry.cash === 'number') {
       lastCashValue = entry.cash;
+    }
+    if (typeof entry.investedFromDeposits === 'number') {
+      lastInvestedFromDeposits = entry.investedFromDeposits;
     }
     if (typeof entry.investedInAssets === 'number') {
       lastInvestedInAssets = entry.investedInAssets;
@@ -538,8 +555,13 @@ export const getPortfolioDetail = async (id: number): Promise<PortfolioDetail | 
       date: dateIso,
       value: roundCurrency(entry.assets + lastCashValue),
     });
-    // investedHistory = Coût d'achat cumulé des actifs (pour calculer la +/- value)
+    // investedHistory = Capital investi basé sur les versements de cash détectés
     investedHistory.push({
+      date: dateIso,
+      value: roundCurrency(lastInvestedFromDeposits),
+    });
+    // investedInAssetsHistory = Coût d'achat réel des actifs (pour calcul +/- value)
+    investedInAssetsHistory.push({
       date: dateIso,
       value: roundCurrency(lastInvestedInAssets),
     });
@@ -553,6 +575,7 @@ export const getPortfolioDetail = async (id: number): Promise<PortfolioDetail | 
     ...summary,
     priceHistory,
     investedHistory,
+    investedInAssetsHistory,
     cashHistory,
     dividendsHistory,
   };

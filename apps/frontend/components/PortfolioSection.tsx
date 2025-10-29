@@ -45,6 +45,10 @@ export const PortfolioSection = ({ portfolio, refreshTrigger }: PortfolioSection
       ts: new Date(point.date).getTime(),
       value: typeof point.value === 'number' ? point.value : Number(point.value ?? 0),
     }));
+    const investedInAssetsSeries = (detail.investedInAssetsHistory ?? []).map((point) => ({
+      ts: new Date(point.date).getTime(),
+      value: typeof point.value === 'number' ? point.value : Number(point.value ?? 0),
+    }));
     const cashSeries = (detail.cashHistory ?? []).map((point) => ({
       ts: new Date(point.date).getTime(),
       value: typeof point.value === 'number' ? point.value : Number(point.value ?? 0),
@@ -55,9 +59,11 @@ export const PortfolioSection = ({ portfolio, refreshTrigger }: PortfolioSection
     }));
     
     let investedIdx = 0;
+    let investedInAssetsIdx = 0;
     let cashIdx = 0;
     let dividendsIdx = 0;
     let lastInvested = investedSeries[0]?.value ?? 0;
+    let lastInvestedInAssets = investedInAssetsSeries[0]?.value ?? 0;
     let lastCash = cashSeries[0]?.value ?? 0;
     let lastDividends = dividendsSeries[0]?.value ?? 0;
 
@@ -73,6 +79,10 @@ export const PortfolioSection = ({ portfolio, refreshTrigger }: PortfolioSection
           lastInvested = investedSeries[investedIdx].value;
           investedIdx += 1;
         }
+        while (investedInAssetsIdx < investedInAssetsSeries.length && investedInAssetsSeries[investedInAssetsIdx].ts <= timestamp) {
+          lastInvestedInAssets = investedInAssetsSeries[investedInAssetsIdx].value;
+          investedInAssetsIdx += 1;
+        }
         while (cashIdx < cashSeries.length && cashSeries[cashIdx].ts <= timestamp) {
           lastCash = cashSeries[cashIdx].value;
           cashIdx += 1;
@@ -84,6 +94,7 @@ export const PortfolioSection = ({ portfolio, refreshTrigger }: PortfolioSection
         
         let pointValue = typeof point.value === 'number' ? point.value : Number(point.value ?? 0);
         let investedValue = lastInvested;
+        let investedInAssetsValue = lastInvestedInAssets;
         let cashValue = lastCash;
         let dividendsValue = lastDividends;
         const assetsValue = pointValue - cashValue;
@@ -94,6 +105,7 @@ export const PortfolioSection = ({ portfolio, refreshTrigger }: PortfolioSection
           date: timestamp,
           value: pointValue,
           invested: investedValue,
+          investedInAssets: investedInAssetsValue,
           cash: cashValue,
           dividends: dividendsValue,
         };
@@ -141,6 +153,13 @@ export const PortfolioSection = ({ portfolio, refreshTrigger }: PortfolioSection
                 ? (valueEntry.payload as any)?.invested
                 : portfolio.investedValue ?? 0),
           );
+    
+    // Récupérer investedInAssets pour le calcul de la +/- value
+    const investedInAssetsValue =
+      valueEntry && typeof (valueEntry.payload as any)?.investedInAssets === 'number'
+        ? (valueEntry.payload as any).investedInAssets
+        : investedValue;
+    
     const cashRaw = cashEntry?.value;
     const cashForTooltip =
       typeof cashRaw === 'number'
@@ -168,7 +187,8 @@ export const PortfolioSection = ({ portfolio, refreshTrigger }: PortfolioSection
     }
     const labelValue =
       typeof label === 'number' ? dateFormatter.format(new Date(label)) : String(label ?? '');
-    const delta = assetValue - investedValue;
+    // Calculer la +/- value par rapport au coût d'achat des actifs, pas au versement total
+    const delta = assetValue - investedInAssetsValue;
     const deltaColor = delta > 0 ? '#34d399' : delta < 0 ? '#f87171' : '#94a3b8';
 
     return (
