@@ -387,14 +387,32 @@ export const AssetAccordion = ({ assets, refreshTrigger }: AssetAccordionProps) 
               {error[asset.id] && <div className="alert error">{error[asset.id]}</div>}
               {assetDetail && (
                 <div style={{ display: 'grid', gap: '1.2rem' }}>
-                  {assetDetail.priceHistory.length > 0 && (
+                  {assetDetail.priceHistory.length > 0 && (() => {
+                    const chartData = assetDetail.priceHistory.map((point) => ({
+                      date: new Date(point.date).getTime(),
+                      value: point.value,
+                    }));
+                    
+                    // Calculer le domaine Y dynamique avec marge
+                    const values = chartData.map(p => p.value);
+                    const minValue = Math.min(...values);
+                    const maxValue = Math.max(...values);
+                    const range = maxValue - minValue;
+                    const margin = range * 0.10; // 10% de marge
+                    const yMin = Math.max(0, minValue - margin);
+                    const yMax = maxValue + margin;
+                    // Arrondir intelligemment selon la magnitude des valeurs
+                    const yDomain: [number, number] = range < 1 
+                      ? [Number(yMin.toFixed(2)), Number(yMax.toFixed(2))]
+                      : range < 100
+                      ? [Number(yMin.toFixed(1)), Number(yMax.toFixed(1))]
+                      : [Math.floor(yMin), Math.ceil(yMax)];
+                    
+                    return (
                     <div className="chart-wrapper">
                       <ResponsiveContainer width="100%" height="100%">
                         <AreaChart
-                          data={assetDetail.priceHistory.map((point) => ({
-                            date: new Date(point.date).getTime(),
-                            value: point.value,
-                          }))}
+                          data={chartData}
                           margin={{ top: 8, right: 12, left: 0, bottom: 0 }}
                         >
                           <defs>
@@ -417,7 +435,14 @@ export const AssetAccordion = ({ assets, refreshTrigger }: AssetAccordionProps) 
                             tick={{ fontSize: 10, fill: '#94a3b8' }}
                             stroke="rgba(148, 163, 184, 0.2)"
                             width={45}
-                            tickFormatter={(value) => value.toFixed(0)}
+                            domain={yDomain}
+                            tickFormatter={(value) => {
+                              // Afficher les décimales pour les prix > 1
+                              if (value >= 1000) return value.toFixed(0);
+                              if (value >= 100) return value.toFixed(1);
+                              if (value >= 1) return value.toFixed(2);
+                              return value.toFixed(3);
+                            }}
                           />
                           <Tooltip
                             cursor={{ stroke: 'rgba(96, 165, 250, 0.35)', strokeWidth: 1 }}
@@ -448,7 +473,8 @@ export const AssetAccordion = ({ assets, refreshTrigger }: AssetAccordionProps) 
                         </AreaChart>
                       </ResponsiveContainer>
                     </div>
-                  )}
+                    );
+                  })()}
                   <div className="table-responsive">
                     <table>
                       <thead>

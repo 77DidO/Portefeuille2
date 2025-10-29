@@ -112,6 +112,25 @@ export const PortfolioSection = ({ portfolio, refreshTrigger }: PortfolioSection
       })
       .filter((point) => point.date >= cutoffTimestamp);
   }, [dateRange, detailQuery.data]);
+  
+  // Calculer le domaine Y pour un meilleur zoom sur les données
+  const yAxisDomain = useMemo((): [number, number] => {
+    if (chartData.length === 0) return [0, 2200];
+    
+    const values = chartData.flatMap(point => [point.value, point.invested]);
+    const minValue = Math.min(...values);
+    const maxValue = Math.max(...values);
+    
+    // Ajouter une marge de 10% en haut et en bas pour une meilleure lisibilité
+    const range = maxValue - minValue;
+    const margin = range * 0.10;
+    
+    const yMin = Math.max(0, minValue - margin);
+    const yMax = maxValue + margin;
+    
+    return [Math.floor(yMin), Math.ceil(yMax)];
+  }, [chartData]);
+  
   const cashSymbols = new Set(['PEA_CASH', '_PEA_CASH', 'CASH']);
   if (portfolio.category === 'CRYPTO') {
     cashSymbols.add('EUR');
@@ -340,6 +359,7 @@ export const PortfolioSection = ({ portfolio, refreshTrigger }: PortfolioSection
                   tick={{ fontSize: 10, fill: '#94a3b8' }}
                   stroke="rgba(148, 163, 184, 0.2)"
                   width={60}
+                  domain={yAxisDomain}
                   tickFormatter={(value) => format(value).replace(/,00$/, '')}
                 />
                 <Tooltip
