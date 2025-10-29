@@ -201,8 +201,10 @@ export const PortfolioSection = ({ portfolio, refreshTrigger }: PortfolioSection
           );
     
     let assetValue = pointValue - cashForTooltip;
-    if (investedValue > 0 && assetValue <= 0) {
-      assetValue = investedValue;
+    // Si on a investi mais que la valeur des actifs est nulle ou négative,
+    // utiliser le coût d'achat des actifs au lieu du versement total
+    if (investedInAssetsValue > 0 && assetValue <= 0) {
+      assetValue = investedInAssetsValue;
     }
     const labelValue =
       typeof label === 'number' ? dateFormatter.format(new Date(label)) : String(label ?? '');

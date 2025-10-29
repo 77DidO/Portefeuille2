@@ -343,125 +343,109 @@ export const getPortfolioDetail = async (id: number): Promise<PortfolioDetail | 
     }
   >();
 
-  // Map pour tracker le coût d'achat cumulé des actifs par jour
-  const dailyInvestedInAssets = new Map<
-    string,
-    {
-      timestamp: number;
-      value: number;
-    }
-  >();
-
+  // Collecter tous les jours uniques où il y a eu une activité (transactions ou prix)
+  const allDays = new Set<string>();
+  
   portfolio.assets.forEach((asset) => {
-    const isCashAsset = isCashSymbol(asset.symbol);
-    const transactions = [...asset.transactions].sort(
-      (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
-    );
+    asset.pricePoints.forEach(pp => {
+      const dayKey = new Date(pp.date).toISOString().split('T')[0];
+      allDays.add(dayKey);
+    });
+    asset.transactions.forEach(tx => {
+      const dayKey = new Date(tx.date).toISOString().split('T')[0];
+      allDays.add(dayKey);
+    });
+  });
 
-    if (isCashAsset) {
-      let runningQuantity = 0;
-      transactions.forEach((tx) => {
-        const qty = toNumber(tx.quantity);
-        runningQuantity += tx.type === 'BUY' ? qty : -qty;
-        const txDate = new Date(tx.date);
-        const dayKey = txDate.toISOString().split('T')[0];
-        const dayTimestamp = Math.max(
-          txDate.getTime(),
-          Date.UTC(txDate.getUTCFullYear(), txDate.getUTCMonth(), txDate.getUTCDate()),
-        );
-        cashSnapshots.set(dayKey, {
-          timestamp: dayTimestamp,
-          value: runningQuantity,
-        });
-        const existing = dailyTotals.get(dayKey);
-        if (existing) {
-          dailyTotals.set(dayKey, {
-            timestamp: Math.max(existing.timestamp, dayTimestamp),
-            assets: existing.assets,
-          });
-        } else {
-          dailyTotals.set(dayKey, {
-            timestamp: dayTimestamp,
-            assets: 0,
-          });
-        }
-      });
-      return;
-    }
-
-    const sortedPoints = [...asset.pricePoints].sort(
-      (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
-    );
-    if (sortedPoints.length === 0) {
-      return;
-    }
-    let txIndex = 0;
-    let runningQuantity = 0;
-    let runningCost = 0; // Coût d'achat cumulé
+  // Pour chaque jour, calculer la valeur totale du portefeuille
+  const sortedDays = Array.from(allDays).sort();
+  
+  sortedDays.forEach(dayKey => {
+    let totalAssetValue = 0;
+    let totalInvestedInAssets = 0;
+    let dayTimestamp = 0;
     
-    const dailyContribution = new Map<
-      string,
-      {
-        timestamp: number;
-        assets: number;
-        cost: number;
-      }
-    >();
-
-    sortedPoints.forEach((point) => {
-      const pointTime = new Date(point.date).getTime();
-      while (txIndex < transactions.length && new Date(transactions[txIndex].date).getTime() <= pointTime) {
-        const tx = transactions[txIndex];
+    portfolio.assets.forEach((asset) => {
+      const isCashAsset = isCashSymbol(asset.symbol);
+      if (isCashAsset) return; // Le cash est géré séparément
+      
+      const transactions = [...asset.transactions]
+        .filter(tx => new Date(tx.date).toISOString().split('T')[0] <= dayKey)
+        .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+      
+      const pricePoints = [...asset.pricePoints]
+        .filter(pp => new Date(pp.date).toISOString().split('T')[0] <= dayKey)
+        .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+      
+      if (pricePoints.length === 0) return; // Pas encore de prix pour cet actif
+      
+      // Calculer la quantité et le coût au jour J
+      let quantity = 0;
+      let cost = 0;
+      
+      transactions.forEach(tx => {
         const qty = toNumber(tx.quantity);
         const price = toNumber(tx.price);
         const fee = toNumber(tx.fee ?? 0);
         const delta = new Decimal(price).mul(qty).plus(fee).toNumber();
         
         if (tx.type === 'BUY') {
-          runningQuantity += qty;
-          runningCost += delta;
+          quantity += qty;
+          cost += delta;
         } else {
-          runningQuantity -= qty;
-          runningCost -= delta;
+          quantity -= qty;
+          cost -= delta;
         }
-        txIndex += 1;
-      }
-      if (runningQuantity === 0) {
-        return;
-      }
-      const value = toNumber(point.price) * runningQuantity;
-      const pointDate = new Date(point.date);
-      const dayKey = pointDate.toISOString().split('T')[0];
-      const dayTimestamp = Date.UTC(
-        pointDate.getUTCFullYear(),
-        pointDate.getUTCMonth(),
-        pointDate.getUTCDate(),
+      });
+      
+      if (quantity <= 0) return; // Plus d'actif de ce type
+      
+      // Utiliser le dernier prix connu
+      const lastPrice = pricePoints[pricePoints.length - 1];
+      const value = toNumber(lastPrice.price) * quantity;
+      
+      totalAssetValue += value;
+      totalInvestedInAssets += cost;
+      
+      const ppDate = new Date(lastPrice.date);
+      dayTimestamp = Math.max(
+        dayTimestamp,
+        Date.UTC(ppDate.getUTCFullYear(), ppDate.getUTCMonth(), ppDate.getUTCDate())
       );
-      const existingPerDay = dailyContribution.get(dayKey);
-      if (!existingPerDay || pointTime >= existingPerDay.timestamp) {
-        dailyContribution.set(dayKey, {
-          timestamp: Math.max(pointTime, dayTimestamp),
-          assets: value,
-          cost: runningCost,
-        });
-      }
     });
+    
+    if (totalAssetValue > 0 || totalInvestedInAssets > 0) {
+      dailyTotals.set(dayKey, {
+        timestamp: dayTimestamp,
+        assets: totalAssetValue,
+        investedInAssets: totalInvestedInAssets,
+      });
+    }
+  });
 
-    dailyContribution.forEach((entry, dayKey) => {
-      const existing = dailyTotals.get(dayKey);
-      if (existing) {
-        dailyTotals.set(dayKey, {
-          timestamp: Math.max(existing.timestamp, entry.timestamp),
-          assets: existing.assets + entry.assets,
-          investedInAssets: (existing.investedInAssets || 0) + entry.cost,
-        });
-      } else {
-        dailyTotals.set(dayKey, { 
-          timestamp: entry.timestamp,
-          assets: entry.assets,
-          investedInAssets: entry.cost,
-        });
-      }
+  // Gérer le cash séparément
+  portfolio.assets.forEach((asset) => {
+    const isCashAsset = isCashSymbol(asset.symbol);
+    if (!isCashAsset) return;
+    
+    const transactions = [...asset.transactions].sort(
+      (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
+    );
+
+    let runningQuantity = 0;
+    transactions.forEach((tx) => {
+      const qty = toNumber(tx.quantity);
+      runningQuantity += tx.type === 'BUY' ? qty : -qty;
+      const txDate = new Date(tx.date);
+      const dayKey = txDate.toISOString().split('T')[0];
+      const dayTimestamp = Math.max(
+        txDate.getTime(),
+        Date.UTC(txDate.getUTCFullYear(), txDate.getUTCMonth(), txDate.getUTCDate()),
+      );
+      cashSnapshots.set(dayKey, {
+        timestamp: dayTimestamp,
+        value: runningQuantity,
+      });
     });
   });
 
