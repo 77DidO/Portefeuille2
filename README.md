@@ -258,60 +258,126 @@ Cette section détaille la chaîne complète de traitement des données (CSV →
 
 ## 1. Pipeline d'import CSV
 
-### Formats pris en charge
+### 1.1 Architecture du pipeline
 
+```
+CSV Upload
+    ↓
+[parseImportFile] ← Détection du format (CA, Binance, Coinbase)
+    ↓
+[Parser spécifique] ← Normalisation des données
+    ↓
+[ParsedRow[]] ← Transactions normalisées
+    ↓
+[processImport] ← Persistance en base
+    ↓
+[refreshAssetPrice] ← Mise à jour des cours actuels
+    ↓
+[Succès] → Redirection vers dashboard
+```
+
+### 1.2 Formats pris en charge
+
+**Sources supportées** :
 - Crédit Agricole (PEA)
 - Binance (CSV `change`, `operation`, `coin`, …)
 - Coinbase (CSV `timestamp`, `asset`, …)
 
-### Normalisations communes
+### 1.3 Normalisations communes
 
-- `normaliseNumber` supprime les espaces, remplace `,` par `.` et ignore les symboles monétaires.
-- `normaliseText` convertit en minuscules, enlève accents/apostrophes typographiques et ne garde que [a-z0-9] + espaces.
-- `normaliseDate` gère ISO, `JJ/MM/AAAA`, `AAAA-MM-JJ`, `JJ-MM-AAAA`, etc.
+**Fonctions utilitaires** :
+- `normaliseNumber` : supprime les espaces, remplace `,` par `.` et ignore les symboles monétaires
+- `normaliseText` : convertit en minuscules, enlève accents/apostrophes typographiques et ne garde que [a-z0-9] + espaces
+- `normaliseDate` : gère ISO, `JJ/MM/AAAA`, `AAAA-MM-JJ`, `JJ-MM-AAAA`, etc.
 
-### Crédit Agricole
+### 1.4 Import Crédit Agricole (PEA)
+
+**Logique de traitement** :
 
 | Type de ligne                           | Traitement                                                                                              |
 |----------------------------------------|-----------------------------------------------------------------------------------------------------------|
-| `ACHAT COMPTANT`                       | - Création d’une transaction titre (prix = `|montant net ± frais| / quantité`)<br>- Création d’un SELL `_PEA_CASH` du même montant |
-| `VENTE`                                | Inverse du tableau ci-dessus                                                                             |
-| `VERSEMENT`, `REMBOURSEMENT`, `COUPON`, `DIVIDENDE`, lignes sans quantité | Création uniquement d’un BUY `_PEA_CASH` (aucun titre)                                                  |
-| Parts sociales (`000007859050`, …)     | Traitement comme achat normal (quantité * 1 €) ; _aucun appel Yahoo_ lors du refresh                     |
+| `ACHAT COMPTANT`                       | - Création d'une transaction BUY titre (prix = `|montant net ± frais| / quantité`)<br>- Création d'un SELL `_PEA_CASH` du même montant<br>- Création d'un `PricePoint` à la date d'achat |
+| `VENTE`                                | - Création d'une transaction SELL titre<br>- Création d'un BUY `_PEA_CASH` du montant vendu             |
+| `VERSEMENT`, `REMBOURSEMENT`, `COUPON`, `DIVIDENDE` | Création uniquement d'un BUY `_PEA_CASH` (aucun titre)                                                  |
+| Parts sociales (`000007859050`, …)     | Traitement comme achat normal (quantité × 1€) ; _aucun appel Yahoo_ lors du refresh                     |
 
-> À chaque achat, un `pricePoint` est créé à la date de l’opération avec le prix reconstitué.  
-> Les transactions cash utilisent un prix fixe 1 €.
+**Points clés** :
+- À chaque achat, un `PricePoint` est créé à la date de l'opération avec le prix reconstitué
+- Les transactions cash utilisent un prix fixe 1€
+- Double écriture : titre + cash pour refléter le mouvement de trésorerie
+- Calcul du prix : `prix_unitaire = montant_total_avec_frais / quantité`
 
-### Binance / Coinbase
+### 1.5 Import Binance / Coinbase
 
-- Regroupement des événements par fenêtre ±2 minutes pour associer les frais.
-- Conversion des montants dans la devise EUR via les paires appropriées (EURUSDT, EURBUSD, BTCEUR…).
-- Création des transactions/pricePoints de la même façon que pour le PEA.
+**Traitement spécifique crypto** :
+- Regroupement des événements par fenêtre ±2 minutes pour associer les frais
+- Conversion des montants dans la devise EUR via les paires appropriées (EURUSDT, EURBUSD, BTCEUR…)
+- Création des transactions/pricePoints de la même façon que pour le PEA
+- Gestion des multiples paires de devises (stablecoins, BTC, altcoins)
 
-### Persistance
+### 1.6 Persistance en base
+
+**Process d'écriture** :
 
 1. Pour chaque `ParsedRow` :
-   - `Transaction` (créée ou mise à jour si même date/type/quantité/source).
-   - `PricePoint` `upsert` (clé `{assetId, date}`).
-2. `asset.lastPriceUpdateAt` est actualisé.
-3. Après import, `refreshAssetPrice` est appelé pour récupérer les cours actuels.
+   - `Transaction` : créée ou mise à jour si même date/type/quantité/source (évite les doublons)
+   - `PricePoint` : `upsert` avec clé unique `{assetId, date}` (un seul prix par jour)
+   
+2. Mise à jour des métadonnées :
+   - `asset.lastPriceUpdateAt` actualisé
+   - Timestamps de création/modification
+
+3. Post-import automatique :
+   - Appel à `refreshAssetPrice` pour récupérer les cours actuels
+   - Calcul des totaux de portefeuille
+   - Invalidation du cache si Redis activé
+
+**Gestion des doublons** :
+- Détection par comparaison de hash (date + type + quantité + prix)
+- Mise à jour plutôt que création si transaction existante
+- Log des doublons ignorés
 
 ## 2. Rafraîchissement des prix
 
-| Endpoint                          | Description                                                                 |
-|----------------------------------|-----------------------------------------------------------------------------|
-| `POST /api/assets/:id/refresh`   | Rafraîchit un actif (bouton « Actualiser »)                                 |
-| `POST /api/assets/refresh`       | Rafraîchit tous les actifs ou ceux d’un portefeuille (`?portfolioId=`)      |
-| `POST /api/assets/backfill-history` | Récupère l’historique quotidien depuis la date du premier achat          |
+### 2.1 Endpoints disponibles
 
-- **Crypto** : cours spot Binance (cash EUR, USDT, USD, BUSD, BTC).
-- **ETF/Actions** : Yahoo Finance (recherche + quote + chart).  
-- **Cash** : `_PEA_CASH`, `_PEA_CASH`, `CASH` → prix statique 1 €.
-- **Titres non cotés** (symboles numériques comme `000007859050`) → aucun appel Yahoo : on reprend le dernier prix manuel (transaction/pricePoint).
+| Endpoint                          | Description                                                                 | Cache Redis |
+|----------------------------------|-----------------------------------------------------------------------------|-------------|
+| `POST /api/assets/:id/refresh`   | Rafraîchit un actif (bouton « Actualiser »)                                 | ✅ Oui      |
+| `POST /api/assets/refresh`       | Rafraîchit tous les actifs ou ceux d'un portefeuille (`?portfolioId=`)      | ✅ Oui      |
+| `POST /api/assets/backfill-history` | Récupère l'historique quotidien depuis la date du premier achat          | ✅ Oui      |
+
+### 2.2 Sources de prix par type d'actif
+
+| Type d'actif | Source API | Prix | Particularités |
+|-------------|-----------|------|----------------|
+| **Crypto** | Binance | Cours spot en temps réel | Paires multiples (EUR, USDT, USD, BUSD, BTC) |
+| **ETF/Actions** | Yahoo Finance | Quote + chart historique | Recherche par ISIN puis symbole |
+| **Cash** | Interne | 1€ fixe | `_PEA_CASH`, `EUR`, `USDT`, etc. |
+| **Titres non cotés** | Manuel | Dernier prix transaction | Parts sociales (ex: `000007859050`) |
+
+### 2.3 Stratégie de cache (Redis)
+
+**Mise en cache** :
+- TTL configurable (défaut: 3600s = 1h)
+- Clé format: `price:{symbol}:{source}`
+- Invalidation automatique après TTL
+- Graceful degradation si Redis indisponible
+
+**Flux de récupération** :
+```
+1. Vérifier cache Redis
+   ├─ Hit → retourner prix caché
+   └─ Miss → appel API externe
+       ├─ Succès → mettre en cache + retourner
+       └─ Échec → log erreur + retourner null
+```
 
 ## 3. Calculs coté backend
 
-Pour chaque portefeuille (`computePortfolioTotals`) :
+### 3.1 Totaux actuels (`computePortfolioTotals`)
+
+Pour chaque portefeuille :
 
 - `assetSummaries` calculés via `computeAssetSummary` :
   - `quantity` = quantités nettes.
@@ -325,33 +391,124 @@ Pour chaque portefeuille (`computePortfolioTotals`) :
   - `investedValue` = somme des `investedValue` hors cash.
   - `gainLossValue` = `totalValue - investedValue`.
 
-> Ainsi, la plus/moins-value globale reflète bien la performance titres (les dépôts/retraits cash n’impactent pas `gainLossValue`).
+> Ainsi, la plus/moins-value globale reflète bien la performance titres (les dépôts/retraits cash n'impactent pas `gainLossValue`).
+
+### 3.2 Historiques de valeur (`getPortfolioDetail`)
+
+Le calcul des séries historiques suit un processus en plusieurs étapes pour assurer la cohérence des données :
+
+#### a) Identification des dépôts de capital
+
+La fonction `identifyCashDeposits` détecte les véritables versements :
+- **Crypto (Binance)** : transactions `_CASH` ≥ 1€
+- **PEA** : transactions `_PEA_CASH` ≥ 50€
+- Exclusion des mouvements internes (achats/ventes d'actifs)
+
+Cette distinction permet de séparer :
+- `investedHistory` : capital réellement déposé (ligne de référence sur le graphique)
+- `investedInAssetsHistory` : montant investi en actifs (base de calcul de la performance)
+
+#### b) Calcul des valeurs journalières
+
+Pour chaque jour où il y a eu une activité (transaction ou prix) :
+
+1. **Valeur des actifs** (`priceHistory`) :
+   - Pour chaque actif NON-CASH :
+     - Récupérer toutes les transactions jusqu'à ce jour
+     - Calculer la quantité détenue : `Σ(BUY) - Σ(SELL)`
+     - Trouver le dernier prix connu avant ou le jour J
+     - Valeur = `quantité × dernier_prix`
+   - Agréger tous les actifs pour obtenir la valeur totale du portefeuille
+
+2. **Coût d'achat cumulé** (`investedInAssetsHistory`) :
+   - Pour chaque actif NON-CASH :
+     - Calculer le coût net : `Σ(prix×quantité+frais pour BUY) - Σ(prix×quantité+frais pour SELL)`
+   - Agréger pour obtenir le capital investi en actifs
+
+3. **Trésorerie** (`cashHistory`) :
+   - Pour chaque transaction cash :
+     - Quantité cumulée : `Σ(BUY) - Σ(SELL)`
+     - Prix fixe = 1€
+
+4. **Dividendes cumulés** (`dividendsHistory`) :
+   - Cumul des transactions marquées comme dividendes
+
+#### c) Points clés de l'algorithme
+
+- **Approche cumulative** : à chaque jour, on recalcule la valeur de TOUS les actifs avec leur dernier prix connu (pas seulement ceux ayant un nouveau prix ce jour-là)
+- **Gestion des actifs sans prix** : si un actif n'a pas encore de `PricePoint` à une date donnée, il n'est pas inclus dans le calcul (normal en début d'historique)
+- **Précision temporelle** : timestamps UTC normalisés pour éviter les décalages de fuseau horaire
+- **Performance** : tri des prix et transactions par date pour éviter les recherches répétées
+
+#### d) Exemple de calcul (PEA au 1er septembre 2025)
+
+```
+Actifs avec prix au 1er septembre :
+- FR001400ZGR7 : 78 × 5.908€ = 460.82€
+- FR0011871128 : 12 × 51.835€ = 622.02€
+- FR0013412020 : 9 × 29.168€ = 262.51€
+- FR001400U5Q4 : 204 × 5.443€ = 1110.37€
+- FR0013412038 : 15 × 34.765€ = 521.48€
+- 000007859050 : 20 × 1€ = 20.00€
+
+Total actifs : 2997.20€
+Cash (_PEA_CASH) : 1173.03€
+→ priceHistory = 4170.23€
+
+Capital investi : 4500€
+→ investedHistory = 4500€
+
+Coût d'achat actifs : 3200€
+→ investedInAssetsHistory = 3200€
+
+Plus-value = 2997.20€ - 3200€ = -202.80€
+```
+
+#### e) Cas particuliers
+
+- **Actifs non cotés** (parts sociales, etc.) : utilisent le prix de la dernière transaction (pas d'appel API)
+- **Premiers jours** : certains actifs peuvent ne pas avoir de prix → valeur partielle normale
+- **Transactions hors cotation** : le `PricePoint` est créé au moment de la transaction avec le prix d'achat
 
 ## 4. Affichage UI (`PortfolioSection.tsx`)
 
-### Graphe
+### Graphe d'évolution
 
-- Plages proposées : `1M`, `3M`, `6M`, `Tout`.
-- Pour chaque point :  
+- **Périodes** : `1M`, `3M`, `6M`, `Tout`
+- **Axe Y dynamique** : 
+  - Calcul automatique du min/max avec marge de 10%
+  - Arrondi intelligent selon l'échelle (évite les axes fixes à 0€)
+  - Format décimal adaptatif (≥1000: 0 déc, ≥100: 1 déc, ≥1: 2 déc, <1: 3 déc)
+
+- **Données affichées** :
+  Pour chaque point :  
+  ```typescript
+  pointValue = priceHistory.value              // Valeur totale du portefeuille
+  investedValue = last invested history <= date // Capital déposé (dépôts cash)
+  investedInAssetsValue = last investedInAssets <= date // Coût d'achat des actifs
+  cashValue = last cash history <= date        // Trésorerie disponible
+  assetsValue = pointValue - cashValue         // Valeur des actifs
   ```
-  pointValue = priceHistory.value
-  investedValue = last invested history <= date
-  cashValue = last cash history <= date
-  assetsValue = pointValue - cashValue
+
+- **Protection anti-anomalie** :
+  Si `assetsValue <= 0` alors qu'un capital investi existe (cas d'un achat avant le refresh des prix), on borne :
+  ```typescript
+  assetsValue = investedInAssetsValue
+  pointValue = investedInAssetsValue + cashValue
   ```
-  Si `assetsValue <= 0` alors qu’un capital investi existe (cas d’un achat avant le refresh), on borne `assetsValue = investedValue` et `pointValue = investedValue + cashValue`.  
-  → Plus de plongée fictive.
+  → Plus de plongée fictive à 0€ sur le graphique
 
-- Tooltip :
-  - Valeur totale
-  - Solde de trésorerie
-  - Valeur hors trésorerie
-  - Capital investi
-  - Plus/moins-value = `Valeur hors trésorerie – Capital investi`
+- **Tooltip interactif** :
+  - 📊 Valeur totale (aire bleue)
+  - 💰 Solde de trésorerie
+  - 📈 Valeur hors trésorerie
+  - 💵 Capital investi (ligne pointillée)
+  - 📉 Plus/moins-value = `Valeur hors trésorerie – Capital investi en actifs`
+  - 📊 Gain/Perte en %
 
-- Légende :
-  - Aire bleue : `Valeur totale`
-  - Ligne blanche pointillée : `Capital investi`
+- **Légende** :
+  - 🔵 Aire bleue : Valeur totale du portefeuille
+  - ⚪ Ligne blanche pointillée : Capital investi (référence)
 
 ### Détail portefeuilles
 
@@ -362,21 +519,81 @@ Pour chaque portefeuille (`computePortfolioTotals`) :
 
 # Workflow global (pas-à-pas)
 
-1. **Purger / Créer le portefeuille** (optionnel si premières données).
-2. **Importer le CSV Crédit Agricole**  
-   - `ACHAT COMPTANT` → transaction titre + mouvement cash (SELL).  
-   - `VERSEMENT / REMBOURSEMENT / COUPON` → uniquement mouvement cash (BUY).  
-   - `PricePoint` créé automatiquement le jour de l’achat.
-3. **Importer les autres sources** (Binance/Coinbase) si besoin.
-4. **Actualiser les prix** (`/api/assets/refresh`) :  
-   - Crypto → Binance  
-   - ETF/Actions → Yahoo  
-   - Titres non cotés → prix manuel (pas de Yahoo)
-5. **Consulter le front**  
-   - Valeur totale et P/L = chiffres Crédit Agricole.  
-   - Graphe lisse (plus de trou à 0 €).
+## Scénario complet : Import initial PEA
 
-> Après un nouveau dépôt/achat : répéter l’import et, si nécessaire, actualiser les prix pour que le graphe se mette immédiatement à jour.
+1. **Préparation**
+   - Créer le portefeuille "Crédit Agricole PEA" (catégorie: PEA)
+   - Télécharger l'historique CSV depuis l'espace client CA
+
+2. **Import CSV**  
+   - Naviguer vers `/import`
+   - Sélectionner le portefeuille et la source "Crédit Agricole"
+   - Uploader le fichier CSV complet
+   - Traitement automatique :
+     - `ACHAT COMPTANT` → transaction titre + mouvement cash (SELL)
+     - `VERSEMENT / REMBOURSEMENT / COUPON` → uniquement mouvement cash (BUY)
+     - `PricePoint` créé automatiquement le jour de l'achat
+
+3. **Rafraîchissement des prix**
+   - Automatique après import pour les cours actuels
+   - Optionnel : `POST /api/assets/backfill-history` pour l'historique complet
+   - Sources :
+     - ETF/Actions → Yahoo Finance
+     - Titres non cotés → prix manuel (pas de Yahoo)
+
+4. **Vérification**
+   - Consulter le dashboard
+   - Valeur totale et P/L = chiffres Crédit Agricole
+   - Graphe historique lisse (plus de trou à 0€)
+   - Trésorerie disponible affichée séparément
+
+5. **Mises à jour futures**
+   - Exporter nouveau CSV des dernières opérations
+   - Ré-importer (doublons automatiquement gérés)
+   - Actualiser les prix si nécessaire
+
+## Workflow quotidien
+
+```
+Matin : Consultation
+    ↓
+Dashboard → Vérifier valeurs actuelles
+    ↓
+Graphique → Observer l'évolution
+    ↓
+[Optionnel] Actualiser prix → Bouton refresh
+
+Mensuel : Mise à jour
+    ↓
+Exporter CSV depuis établissements
+    ↓
+Import → /import
+    ↓
+Vérification → Dashboard
+```
+
+## Optimisations et bonnes pratiques
+
+### Performance
+
+- **Cache Redis** : Activé en production pour réduire les appels API externes
+- **Index base de données** : Sur `asset.symbol`, `transaction.date`, `pricePoint.date`
+- **Pagination** : Historique des transactions limité à 50/page
+- **Lazy loading** : Graphiques chargés uniquement quand visibles
+
+### Fiabilité
+
+- **Validation Zod** : Toutes les entrées utilisateur validées
+- **Transactions atomiques** : Import en transaction Prisma (rollback si erreur)
+- **Gestion d'erreurs** : Messages clairs + logging structuré
+- **Backups automatiques** : Rotation des 30 derniers backups
+
+### UX
+
+- **Feedback temps réel** : Toasts pour succès/erreurs
+- **Loading states** : Skeletons pendant chargements
+- **Responsive design** : Mobile-first, grilles adaptatives
+- **Accessibilité** : Labels ARIA, navigation clavier
 
 ---
 
