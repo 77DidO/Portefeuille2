@@ -6,6 +6,7 @@ import {
   PortfolioSummary,
   AssetSummary,
   TrendPoint,
+  SyncStatus,
   isCashSymbol,
   isFiatSymbol,
 } from '@portefeuille/types';
@@ -15,6 +16,29 @@ interface AssetWithRelations extends Asset {
   transactions: Transaction[];
   pricePoints: PricePoint[];
 }
+
+/**
+ * Détermine la source du prix pour l'affichage de l'état de synchronisation
+ */
+const determinePriceSource = (asset: AssetWithRelations, latestPrice: any): AssetSummary['priceSource'] => {
+  if (!latestPrice) return 'stale';
+  
+  const now = new Date();
+  const lastUpdate = asset.lastPriceUpdateAt ? new Date(asset.lastPriceUpdateAt) : null;
+  
+  if (!lastUpdate) return 'stale';
+  
+  const minutesSinceUpdate = (now.getTime() - lastUpdate.getTime()) / (1000 * 60);
+  
+  // Prix récent (< 5 minutes) = API fraîche
+  if (minutesSinceUpdate < 5) return 'api';
+  
+  // Prix modéré (5-60 minutes) = Cache
+  if (minutesSinceUpdate < 60) return 'cache';
+  
+  // Prix ancien (> 1h) = Obsolète
+  return 'stale';
+};
 
 const calculatePosition = (transactions: Transaction[]) => {
   let quantity = 0;
@@ -195,9 +219,10 @@ const identifyCashDeposits = (portfolio: Portfolio & { assets: AssetWithRelation
 };
 
 const computeAssetSummary = (asset: AssetWithRelations): AssetSummary => {
-  const sortedPrices = [...asset.pricePoints].sort(
-    (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
-  );
+  const now = Date.now();
+  const sortedPrices = [...asset.pricePoints]
+    .filter((pp) => new Date(pp.date).getTime() <= now) // Ignore future prices
+    .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
   const latestPrice = sortedPrices.at(-1);
   const latestPriceValue = latestPrice ? toNumber(latestPrice.price) : null;
 
@@ -243,7 +268,45 @@ const computeAssetSummary = (asset: AssetWithRelations): AssetSummary => {
     gainLossValue: roundCurrency(adjustedGainLoss),
     gainLossPercentage: roundCurrency(adjustedGainLossPercentage, 2),
     trend,
+    priceSource: determinePriceSource(asset, latestPrice),
   };
+};
+
+/**
+ * Calcule le statut de synchronisation du portefeuille basé sur les prix des actifs
+ */
+const computeSyncStatus = (portfolio: Portfolio & { assets: AssetWithRelations[] }): { status: 'fresh' | 'cached' | 'stale', lastSyncAt: Date | null } => {
+  const now = new Date();
+  const FRESH_THRESHOLD = 5 * 60 * 1000; // 5 minutes
+  const STALE_THRESHOLD = 60 * 60 * 1000; // 1 heure
+  
+  let oldestUpdate: Date | null = null;
+  let hasAnyUpdate = false;
+  
+  // Vérifier les mises à jour de prix pour les actifs non-cash
+  portfolio.assets.forEach((asset) => {
+    if (!isCashSymbol(asset.symbol) && asset.lastPriceUpdateAt) {
+      hasAnyUpdate = true;
+      const updateTime = new Date(asset.lastPriceUpdateAt);
+      if (!oldestUpdate || updateTime.getTime() < oldestUpdate.getTime()) {
+        oldestUpdate = updateTime;
+      }
+    }
+  });
+  
+  if (!hasAnyUpdate || !oldestUpdate) {
+    return { status: 'stale', lastSyncAt: null };
+  }
+  
+  const timeSinceUpdate = now.getTime() - (oldestUpdate as Date).getTime();
+  
+  if (timeSinceUpdate <= FRESH_THRESHOLD) {
+    return { status: 'fresh', lastSyncAt: oldestUpdate };
+  } else if (timeSinceUpdate <= STALE_THRESHOLD) {
+    return { status: 'cached', lastSyncAt: oldestUpdate };
+  } else {
+    return { status: 'stale', lastSyncAt: oldestUpdate };
+  }
 };
 
 const computePortfolioTotals = (portfolio: Portfolio & { assets: AssetWithRelations[] }): PortfolioSummary => {
@@ -273,6 +336,9 @@ const computePortfolioTotals = (portfolio: Portfolio & { assets: AssetWithRelati
   const gainLossValue = investedMarketValue - investedInAssets;
   const gainLossPercentage = investedInAssets !== 0 ? (gainLossValue / investedInAssets) * 100 : 0;
 
+  // Calculer le statut de synchronisation
+  const syncInfo = computeSyncStatus(portfolio);
+
   return {
     id: portfolio.id,
     name: portfolio.name,
@@ -285,6 +351,8 @@ const computePortfolioTotals = (portfolio: Portfolio & { assets: AssetWithRelati
     cashValue: roundCurrency(cashValue),
     dividendsValue: roundCurrency(totalDividends),
     feesValue: roundCurrency(totalFees),
+    syncStatus: syncInfo.status,
+    lastSyncAt: syncInfo.lastSyncAt?.toISOString(),
     assets: assetSummaries,
   };
 };

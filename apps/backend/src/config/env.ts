@@ -11,10 +11,6 @@ const envSchema = z.object({
   MAX_UPLOAD_SIZE: z.string().default('5mb'),
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
   LOG_PRETTY: z.string().transform((val) => val === 'true').default('true'),
-  REDIS_ENABLED: z.string().transform((val) => val === 'true').default('true'),
-  REDIS_HOST: z.string().default('localhost'),
-  REDIS_PORT: z.string().transform(Number).pipe(z.number().int().positive()).default('6379'),
-  PRICE_CACHE_TTL: z.string().transform(Number).pipe(z.number().int().positive()).default('3600'),
 });
 
 export type Env = z.infer<typeof envSchema>;

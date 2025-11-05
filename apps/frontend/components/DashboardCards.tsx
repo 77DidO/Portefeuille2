@@ -54,6 +54,18 @@ const getPortfolioColor = (portfolio: PortfolioSummary): string => {
 
 const chartPalette = ['#60a5fa', '#4ade80', '#fbbf24', '#a78bfa', '#f87171', '#34d399', '#22d3ee', '#f472b6'];
 
+const getSyncIconColor = (portfolio: PortfolioSummary): string => {
+  switch (portfolio.syncStatus) {
+    case 'fresh':
+      return '#10b981'; // Vert - données fraîches
+    case 'cached':
+      return '#f59e0b'; // Orange - données du cache
+    case 'stale':
+    default:
+      return '#ef4444'; // Rouge - données anciennes ou pas synchro
+  }
+};
+
 export const DashboardCards = ({
   portfolios,
   onSelect,

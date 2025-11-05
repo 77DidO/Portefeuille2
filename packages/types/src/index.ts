@@ -3,6 +3,7 @@ export * from './symbols.js';
 export type PortfolioCategory = 'GLOBAL' | 'CRYPTO' | 'PEA' | 'OTHER';
 export type AssetType = 'STOCK' | 'CRYPTO' | 'ETF' | 'FUND' | 'OTHER';
 export type TransactionType = 'BUY' | 'SELL';
+export type SyncStatus = 'fresh' | 'cached' | 'stale';
 
 export interface PortfolioSummary {
   id: number;
@@ -16,6 +17,8 @@ export interface PortfolioSummary {
   cashValue?: number;
   dividendsValue?: number;
   feesValue?: number;
+  syncStatus?: SyncStatus;
+  lastSyncAt?: string;
   assets: AssetSummary[];
 }
 
@@ -26,6 +29,7 @@ export interface AssetSummary {
   assetType: AssetType;
   latestPrice: number | null;
   lastPriceUpdateAt: string | null;
+  priceSource?: 'api' | 'cache' | 'stale';
   quantity: number;
   marketValue: number;
   investedValue: number;

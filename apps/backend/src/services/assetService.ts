@@ -3,6 +3,29 @@ import { AssetDetail, AssetSummary, AssetStaleness, TransactionDTO, TrendPoint }
 import { roundCurrency, toNumber } from '../utils/numbers.js';
 import { Decimal } from 'decimal.js';
 
+/**
+ * Détermine la source du prix pour l'affichage de l'état de synchronisation
+ */
+const determinePriceSource = (asset: any, latestPrice: any): AssetSummary['priceSource'] => {
+  if (!latestPrice) return 'stale';
+  
+  const now = new Date();
+  const lastUpdate = asset.lastPriceUpdateAt ? new Date(asset.lastPriceUpdateAt) : null;
+  
+  if (!lastUpdate) return 'stale';
+  
+  const minutesSinceUpdate = (now.getTime() - lastUpdate.getTime()) / (1000 * 60);
+  
+  // Prix récent (< 5 minutes) = API fraîche
+  if (minutesSinceUpdate < 5) return 'api';
+  
+  // Prix modéré (5-60 minutes) = Cache
+  if (minutesSinceUpdate < 60) return 'cache';
+  
+  // Prix ancien (> 1h) = Obsolète
+  return 'stale';
+};
+
 export const getAssetDetail = async (id: number): Promise<AssetDetail | null> => {
   const asset = await prisma.asset.findUnique({
     where: { id },
@@ -58,6 +81,7 @@ export const getAssetDetail = async (id: number): Promise<AssetDetail | null> =>
     assetType: asset.assetType as AssetSummary['assetType'],
     latestPrice: latestPrice ? toNumber(latestPrice.price) : null,
     lastPriceUpdateAt: asset.lastPriceUpdateAt ? asset.lastPriceUpdateAt.toISOString() : null,
+    priceSource: determinePriceSource(asset, latestPrice),
     quantity: roundCurrency(netQuantity, 8),
     marketValue: roundCurrency(marketValue),
     investedValue: roundCurrency(invested),

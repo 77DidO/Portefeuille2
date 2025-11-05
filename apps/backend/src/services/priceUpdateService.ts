@@ -1,6 +1,5 @@
 import { prisma } from '../prismaClient.js';
 import { isCashSymbol, type BackfillPriceHistoryResponse } from '@portefeuille/types';
-import { getCachedPrice, cachePrice } from '../utils/cache.js';
 import { getLogger } from '../utils/logger.js';
 
 type Quote = {
@@ -120,7 +119,7 @@ const BINANCE_CONVERSION_CONFIG: Record<
 };
 
 const binanceConversionCache = new Map<string, { price: number; fetchedAt: number }>();
-const CONVERSION_CACHE_TTL = 1000 * 60;
+const CONVERSION_CACHE_TTL = 1000 * 60 * 5; // 5 minutes au lieu de 1 minute
 
 class YahooSessionRequiredError extends Error {
   constructor(message = 'Yahoo session required') {
@@ -400,20 +399,10 @@ const fetchYahooHistoricalPrices = async (symbol: string, fromDate: Date) => {
   }
 };
 
-const fetchQuoteForSymbol = async (symbol: string) => {
-  // Check cache first
-  const cached = await getCachedPrice(`yahoo:${symbol}`);
-  if (cached !== null) {
-    const logger = getLogger();
-    logger.debug({ symbol, cachedPrice: cached }, 'Yahoo price from cache');
-    return { price: cached, priceDate: new Date() };
-  }
-
+const fetchQuoteForSymbol = async (symbol: string, forceRefresh = false) => {
   try {
     const chartPayload = await fetchYahooChart(symbol);
     if (chartPayload) {
-      // Cache the price
-      await cachePrice(`yahoo:${symbol}`, chartPayload.price);
       return chartPayload;
     }
   } catch {
@@ -427,9 +416,6 @@ const fetchQuoteForSymbol = async (symbol: string) => {
     throw new Error(`Aucun prix disponible pour ${symbol}`);
   }
   const priceDate = timestamp ? new Date(timestamp * 1000) : new Date();
-
-  // Cache the price
-  await cachePrice(`yahoo:${symbol}`, price);
 
   return { price, priceDate };
 };
@@ -467,10 +453,13 @@ const buildBinancePairs = (symbol: string) => {
     return [];
   }
   const pairs: string[] = [];
+  
+  // Special case: BTC alone is not a valid Binance pair, skip it
   const alreadyHasCounter = BINANCE_COUNTERS.some((counter) => base.endsWith(counter));
-  if (alreadyHasCounter) {
+  if (alreadyHasCounter && base !== 'BTC') {
     pairs.push(base);
   }
+  
   BINANCE_COUNTERS.forEach((counter) => {
     if (!base.endsWith(counter)) {
       pairs.push(`${base}${counter}`);
@@ -483,15 +472,7 @@ const detectBinanceCounter = (pair: string) => {
   return BINANCE_COUNTERS_SORTED.find((counter) => pair.endsWith(counter)) ?? null;
 };
 
-const fetchBinanceTicker = async (pair: string) => {
-  // Check cache first
-  const cached = await getCachedPrice(`binance:${pair}`);
-  if (cached !== null) {
-    const logger = getLogger();
-    logger.debug({ pair, cachedPrice: cached }, 'Binance price from cache');
-    return { price: cached, priceDate: new Date() };
-  }
-
+const fetchBinanceTicker = async (pair: string, forceRefresh = false) => {
   const url = `${BINANCE_TICKER_URL}${pair}`;
   const response = await fetch(url, { headers: YAHOO_HEADERS });
   if (!response.ok) {
@@ -506,18 +487,15 @@ const fetchBinanceTicker = async (pair: string) => {
     throw new Error(`Réponse Binance invalide pour ${pair}`);
   }
 
-  // Cache the price
-  await cachePrice(`binance:${pair}`, price);
-
   return { price, priceDate: new Date() };
 };
 
-const fetchBinanceQuote = async (pair: string) => {
+const fetchBinanceQuote = async (pair: string, forceRefresh = false) => {
   const counter = detectBinanceCounter(pair);
   if (!counter) {
     throw new Error(`Impossible de déterminer la devise de contrepartie pour ${pair}`);
   }
-  const ticker = await fetchBinanceTicker(pair);
+  const ticker = await fetchBinanceTicker(pair, forceRefresh);
   return { ...ticker, counter };
 };
 
@@ -533,9 +511,12 @@ const convertBinancePriceToEur = async (price: number, counter: string) => {
   const now = Date.now();
   let rate = cached?.price;
   if (!rate || !cached || now - cached.fetchedAt > CONVERSION_CACHE_TTL) {
-    const ticker = await fetchBinanceTicker(config.pair);
+    const ticker = await fetchBinanceTicker(config.pair, false);
     rate = ticker.price;
     binanceConversionCache.set(config.pair, { price: rate, fetchedAt: now });
+  }
+  if (!rate) {
+    throw new Error(`Impossible de récupérer le taux de conversion pour ${config.pair}`);
   }
   return config.convert(price, rate);
 };
@@ -583,12 +564,12 @@ const fetchBinanceHistoricalPrices = async (pair: string, fromDate: Date) => {
   return series;
 };
 
-const fetchCryptoPrice = async (symbol: string) => {
+const fetchCryptoPrice = async (symbol: string, forceRefresh = false) => {
   const candidates = buildBinancePairs(symbol);
   const errors: string[] = [];
   for (const pair of candidates) {
     try {
-      const { price, priceDate, counter } = await fetchBinanceQuote(pair);
+      const { price, priceDate, counter } = await fetchBinanceQuote(pair, forceRefresh);
       const priceInEur = await convertBinancePriceToEur(price, counter);
       return { price: priceInEur, priceDate };
     } catch (error) {
@@ -698,13 +679,13 @@ const fetchYahooHistoricalForSymbol = async (rawSymbol: string, fromDate: Date, 
   throw new Error(errors.length > 0 ? errors.join(' | ') : 'Aucune donnée historique disponible');
 };
 
-const fetchQuote = async (symbol: string, extraQueries: string[] = []) => {
+const fetchQuote = async (symbol: string, extraQueries: string[] = [], forceRefresh = false) => {
   const candidates = await buildCandidateSymbols(symbol, extraQueries);
   const errors: string[] = [];
 
   for (const candidate of candidates) {
     try {
-      return await fetchQuoteForSymbol(candidate);
+      return await fetchQuoteForSymbol(candidate, forceRefresh);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       errors.push(`${candidate}: ${message}`);
@@ -774,7 +755,7 @@ export const refreshAssetPrice = async (assetId: number) => {
 
     if (isCrypto) {
       try {
-        const cryptoQuote = await fetchCryptoPrice(asset.symbol);
+        const cryptoQuote = await fetchCryptoPrice(asset.symbol, true); // Force refresh
         return { ...cryptoQuote, source: 'binance' as const };
       } catch (error) {
         errors.push(error instanceof Error ? error.message : String(error));
@@ -782,7 +763,7 @@ export const refreshAssetPrice = async (assetId: number) => {
     }
 
     try {
-      const yahooQuote = await fetchQuote(asset.symbol, extraQueries);
+      const yahooQuote = await fetchQuote(asset.symbol, extraQueries, true); // Force refresh
       return { ...yahooQuote, source: 'yahoo-finance' as const };
     } catch (error) {
       errors.push(error instanceof Error ? error.message : String(error));

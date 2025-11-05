@@ -45,9 +45,6 @@ export function SettingsPageContent() {
   const [resetError, setResetError] = useState('');
   const [backfillStatus, setBackfillStatus] = useState('');
   const [backfillError, setBackfillError] = useState('');
-  const [redisEnabled, setRedisEnabled] = useState<boolean | null>(null);
-  const [redisToggleLoading, setRedisToggleLoading] = useState(false);
-  const [redisToggleError, setRedisToggleError] = useState('');
 
   // Stale assets
   const [staleAssets, setStaleAssets] = useState<AssetStaleness[]>([]);
@@ -110,26 +107,6 @@ export function SettingsPageContent() {
   useEffect(() => {
     void loadStaleAssets();
   }, []);
-
-  useEffect(() => {
-    api.getRedisEnabled()
-      .then((res) => setRedisEnabled(res.enabled))
-      .catch(() => setRedisEnabled(null));
-  }, []);
-
-  const handleToggleRedis = async () => {
-    if (redisEnabled === null) return;
-    setRedisToggleLoading(true);
-    setRedisToggleError('');
-    try {
-      const res = await api.setRedisEnabled(!redisEnabled);
-      setRedisEnabled(res.enabled);
-    } catch (err) {
-      setRedisToggleError('Erreur lors du changement de l\'état du cache Redis.');
-    } finally {
-      setRedisToggleLoading(false);
-    }
-  };
 
   const createPortfolioMutation = useMutation({
     mutationFn: api.createPortfolio,
@@ -601,36 +578,6 @@ export function SettingsPageContent() {
             <p className="muted" style={{ fontSize: '0.85rem', marginBottom: '1rem' }}>
               Outils de gestion des données.
             </p>
-
-            <div style={{ marginBottom: '1rem' }}>
-              <div className="maintenance-header" style={{ marginBottom: '0.5rem' }}>
-                <h4 style={{ fontSize: '0.95rem' }}>Cache des prix (Redis)</h4>
-                <p className="muted" style={{ fontSize: '0.85rem' }}>
-                  Active ou désactive le cache des prix côté serveur (nécessite un redémarrage pour effet complet).
-                </p>
-              </div>
-              <button
-                type="button"
-                className={(redisEnabled ? 'btn-secondary-modern' : 'btn-danger-modern') + ' btn-sm'}
-                onClick={handleToggleRedis}
-                disabled={redisToggleLoading || redisEnabled === null}
-                style={{ minWidth: 180 }}
-              >
-                {redisToggleLoading
-                  ? '⏳ Changement...'
-                  : redisEnabled === null
-                    ? 'Chargement...'
-                    : redisEnabled
-                      ? '✅ Cache activé'
-                      : '❌ Cache désactivé'}
-              </button>
-              {redisToggleError && (
-                <div className="alert-modern alert-error" style={{ marginTop: 8 }}>
-                  <span className="alert-icon">⚠️</span>
-                  {redisToggleError}
-                </div>
-              )}
-            </div>
 
             <div style={{ marginBottom: '1rem' }}>
               <div className="maintenance-header" style={{ marginBottom: '0.5rem' }}>

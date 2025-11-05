@@ -79,9 +79,10 @@ const buildAssetTooltip =
 interface AssetAccordionProps {
   assets: AssetSummary[];
   refreshTrigger?: number | null;
+  portfolioId: number;
 }
 
-export const AssetAccordion = ({ assets, refreshTrigger }: AssetAccordionProps) => {
+export const AssetAccordion = ({ assets, refreshTrigger, portfolioId }: AssetAccordionProps) => {
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [details, setDetails] = useState<Record<number, AssetDetail>>({});
   const [loading, setLoading] = useState<Record<number, boolean>>({});
@@ -197,6 +198,7 @@ export const AssetAccordion = ({ assets, refreshTrigger }: AssetAccordionProps) 
       setRefreshing((prev) => ({ ...prev, [assetId]: true }));
       try {
         await refreshMutation.mutateAsync(assetId);
+        await queryClient.invalidateQueries({ queryKey: ['portfolio-detail', portfolioId] });
         await queryClient.invalidateQueries({ queryKey: ['portfolios'] });
         if (expandedId === assetId) {
           await loadAssetDetail(assetId);
@@ -216,7 +218,7 @@ export const AssetAccordion = ({ assets, refreshTrigger }: AssetAccordionProps) 
         setRefreshing((prev) => ({ ...prev, [assetId]: false }));
       }
     },
-    [dismissToast, expandedId, loadAssetDetail, pushToast, queryClient, refreshMutation],
+    [dismissToast, expandedId, loadAssetDetail, portfolioId, pushToast, queryClient, refreshMutation],
   );
 
   return (
@@ -250,6 +252,18 @@ export const AssetAccordion = ({ assets, refreshTrigger }: AssetAccordionProps) 
               second: '2-digit',
             })}`
           : 'Jamais mis à jour';
+        
+        // Couleur de la pastille selon l'état de synchronisation
+        const getPriceSourceColor = (priceSource?: string) => {
+          switch (priceSource) {
+            case 'api': return '#22c55e'; // Vert - données fraîches
+            case 'cache': return '#f59e0b'; // Orange - données du cache  
+            case 'stale': return '#ef4444'; // Rouge - données anciennes
+            default: return '#94a3b8'; // Gris - état inconnu
+          }
+        };
+        
+        const priceSourceColor = getPriceSourceColor(asset.priceSource);
         const isAssetRefreshing = refreshing[asset.id] ?? false;
 
         const deltaClassName = clsx('asset-metrics__delta', {
@@ -282,22 +296,24 @@ export const AssetAccordion = ({ assets, refreshTrigger }: AssetAccordionProps) 
                     ) : null}
                     <span className="asset-info__name">{asset.name}</span>
                     <span className="asset-info__quantity">
-                      Qt globale&nbsp;:<strong>{formatQuantity(asset.quantity)}</strong>
+                      Qt&nbsp;:<strong style={{ fontSize: '1em' }}>{formatQuantity(asset.quantity)}</strong>
                     </span>
                     {trend ? (
                       <span
-                        className={trendClassName}
+                        className={`asset-trend-badge ${trend.status === 'up' ? 'asset-trend-badge--up' : trend.status === 'down' ? 'asset-trend-badge--down' : 'asset-trend-badge--flat'}`}
                         title={`Performance sur la période récente. Cours initial : ${formatCurrency(
                           trend.first,
                         )} • Cours actuel : ${formatCurrency(trend.last)} • Variation absolue : ${
                           trend.change >= 0 ? '+' : ''
                         }${formatCurrency(trend.change)}`}
                       >
-                        <span>{trendIcon}</span>
-                        <span>{`${Math.abs(trend.percent).toFixed(2)}%`}</span>
+                        <span className="trend-arrow">
+                          {trend.status === 'up' ? '↗' : trend.status === 'down' ? '↘' : '→'}
+                        </span>
+                        <span>{`${trend.percent >= 0 ? '+' : ''}${trend.percent.toFixed(2)}%`}</span>
                       </span>
                     ) : (
-                      <span className="asset-trend asset-trend--empty">Tendance indisponible</span>
+                      <span className="asset-trend-badge asset-trend-badge--empty">Tendance indisponible</span>
                     )}
                   </div>
                   <div className="asset-info__meta">
@@ -307,11 +323,14 @@ export const AssetAccordion = ({ assets, refreshTrigger }: AssetAccordionProps) 
                         {asset.gainLossValue >= 0 ? '+' : ''}
                         {formatCurrency(asset.gainLossValue)} ({asset.gainLossPercentage.toFixed(2)}%)
                       </span>
-                      <span className="asset-metrics__price">
-                        Cours&nbsp;:<strong>{latestPriceLabel}</strong>
-                      </span>
                     </div>
                     <div className="asset-actions">
+                      <div className="asset-price-display">
+                        <span className="price-symbol">$</span>
+                        <span className="asset-metrics__price">
+                          {latestPriceLabel}
+                        </span>
+                      </div>
                       <div className="asset-updated" title={lastUpdateTitle}>
                         <svg
                           className="asset-updated__icon"
@@ -319,10 +338,18 @@ export const AssetAccordion = ({ assets, refreshTrigger }: AssetAccordionProps) 
                           fill="none"
                           xmlns="http://www.w3.org/2000/svg"
                         >
-                          <circle cx="10" cy="10" r="7" stroke="currentColor" strokeWidth="1.6" />
+                          <circle 
+                            cx="10" 
+                            cy="10" 
+                            r="7" 
+                            stroke={priceSourceColor}
+                            strokeWidth="1.6" 
+                            fill={priceSourceColor}
+                            fillOpacity="0.2"
+                          />
                           <path
                             d="M10 6v4l2.6 1.6"
-                            stroke="currentColor"
+                            stroke={priceSourceColor}
                             strokeWidth="1.6"
                             strokeLinecap="round"
                             strokeLinejoin="round"

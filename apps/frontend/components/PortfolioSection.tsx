@@ -34,7 +34,7 @@ export const PortfolioSection = ({ portfolio, refreshTrigger }: PortfolioSection
   const detailQuery = useQuery({
     queryKey: ['portfolio-detail', portfolio.id],
     queryFn: () => api.getPortfolio(portfolio.id),
-    staleTime: 60_000,
+    staleTime: 0,
   });
   const chartData = useMemo(() => {
     const detail = detailQuery.data;
@@ -137,7 +137,11 @@ export const PortfolioSection = ({ portfolio, refreshTrigger }: PortfolioSection
     cashSymbols.add('USDT');
     cashSymbols.add('USDC');
   }
-  const cashAsset = portfolio.assets.find((asset) => {
+  
+  // Use detailQuery.data.assets if available, fallback to portfolio.assets
+  const portfolioAssets = detailQuery.data?.assets ?? portfolio.assets;
+  
+  const cashAsset = portfolioAssets.find((asset) => {
     const symbol = asset.symbol?.toUpperCase?.() ?? '';
     return cashSymbols.has(symbol);
   });
@@ -148,7 +152,7 @@ export const PortfolioSection = ({ portfolio, refreshTrigger }: PortfolioSection
       ? cashAsset.marketValue
       : 0;
   const cashUpdatedAt = cashAsset?.lastPriceUpdateAt ?? null;
-  const displayedAssets = portfolio.assets.filter((asset) => asset !== cashAsset);
+  const displayedAssets = portfolioAssets.filter((asset) => asset !== cashAsset);
   const trackedAssetsCount = displayedAssets.length;
   const renderPortfolioTooltip = ({ active, payload, label }: TooltipProps<number, string>) => {
     if (!active || !payload || payload.length === 0) {
@@ -399,7 +403,11 @@ export const PortfolioSection = ({ portfolio, refreshTrigger }: PortfolioSection
           </div>
         </div>
       )}
-      <AssetAccordion assets={displayedAssets} refreshTrigger={refreshTrigger} />
+      <AssetAccordion 
+        assets={displayedAssets} 
+        refreshTrigger={refreshTrigger} 
+        portfolioId={portfolio.id}
+      />
     </div>
   );
 };

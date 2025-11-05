@@ -13,7 +13,6 @@ import { loadEnv, getEnv } from './config/env.js';
 import { createLogger, getLogger } from './utils/logger.js';
 import { createApiLimiter } from './middleware/rateLimiter.js';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
-import { initializeRedis, closeRedis } from './utils/cache.js';
 
 // Load .env file FIRST
 config();
@@ -25,9 +24,6 @@ const env = getEnv();
 // Initialize logger
 createLogger();
 const logger = getLogger();
-
-// Initialize Redis cache
-initializeRedis();
 
 const app = express();
 
@@ -71,12 +67,10 @@ app.listen(env.PORT, async () => {
 // Graceful shutdown
 process.on('SIGTERM', async () => {
   logger.info('SIGTERM received, shutting down gracefully');
-  await closeRedis();
   process.exit(0);
 });
 
 process.on('SIGINT', async () => {
   logger.info('SIGINT received, shutting down gracefully');
-  await closeRedis();
   process.exit(0);
 });
