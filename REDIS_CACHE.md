@@ -28,7 +28,7 @@ Ajoutez ces variables dans `apps/backend/.env` :
 ```env
 # Redis Cache
 REDIS_ENABLED=true           # Activer/désactiver le cache
-REDIS_HOST=localhost         # Hôte Redis
+REDIS_HOST=127.0.0.1         # Hôte Redis
 REDIS_PORT=6379              # Port Redis
 PRICE_CACHE_TTL=3600         # Durée de vie en secondes (1 heure)
 ```

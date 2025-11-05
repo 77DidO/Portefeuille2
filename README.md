@@ -45,7 +45,7 @@ Variables disponibles :
 - `LOG_LEVEL` : `debug` | `info` | `warn` | `error`
 - `LOG_PRETTY` : Formatage lisible des logs (`true` en dev)
 - `REDIS_ENABLED` : Activer le cache Redis (`true` | `false`)
-- `REDIS_HOST` : Hôte Redis (défaut: `localhost`)
+- `REDIS_HOST` : Hôte Redis (défaut: `127.0.0.1`)
 - `REDIS_PORT` : Port Redis (défaut: `6379`)
 - `PRICE_CACHE_TTL` : Durée de vie du cache en secondes (défaut: `3600`)
 

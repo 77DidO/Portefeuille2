@@ -72,7 +72,7 @@ Réduire drastiquement les appels aux APIs externes (Yahoo Finance, Binance) en 
 2. **`apps/backend/.env` & `.env.example`**
    ```env
    REDIS_ENABLED=true
-   REDIS_HOST=localhost
+   REDIS_HOST=127.0.0.1
    REDIS_PORT=6379
    PRICE_CACHE_TTL=3600
    ```

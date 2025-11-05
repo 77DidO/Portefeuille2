@@ -36,6 +36,7 @@ export const PortfoliosList = ({ portfolios, selectedPortfolioId, onSelect }: Po
           portfolio.gainLossValue === 0 ? '' : portfolio.gainLossValue > 0 ? 'positive' : 'negative';
         const gainPercentage =
           portfolio.investedValue !== 0 ? (portfolio.gainLossValue / portfolio.investedValue) * 100 : 0;
+        const feesValue = portfolio.feesValue ?? 0;
         const isSelected = selectedPortfolioId === portfolio.id;
         const trackedAssetCount = portfolio.assets.filter((asset) => {
           const symbol = asset.symbol?.toUpperCase?.() ?? '';
@@ -201,37 +202,61 @@ export const PortfoliosList = ({ portfolios, selectedPortfolioId, onSelect }: Po
                     </div>
                   </div>
                 )}
-                <div style={{ display: 'flex', gap: '1.1rem', flexWrap: 'wrap' }}>
-                  <div>
-                    <div
-                      style={{
-                        color: '#94a3b8',
-                        fontSize: '0.6rem',
-                        textTransform: 'uppercase',
-                        letterSpacing: '0.08em',
-                      }}
-                    >
-                      P/L
-                    </div>
-                    <div className={clsx('delta', gainClass)} style={{ fontWeight: 600, fontSize: '0.95rem', marginTop: '0.25rem' }}>
-                      {portfolio.gainLossValue >= 0 ? '+' : ''}
-                      {formatCurrency(portfolio.gainLossValue)}
-                    </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                  <div style={{ display: 'flex', gap: '1.1rem' }}>
+                    <div>
+                      <div
+                        style={{
+                          color: '#94a3b8',
+                          fontSize: '0.6rem',
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.08em',
+                        }}
+                      >
+                        P/L
+                      </div>
+                      <div className={clsx('delta', gainClass)} style={{ fontWeight: 600, fontSize: '0.95rem', marginTop: '0.25rem' }}>
+                        {portfolio.gainLossValue >= 0 ? '+' : ''}
+                          {formatCurrency(portfolio.gainLossValue)}
+                        </div>
+                      </div>
+                      <div>
+                        <div
+                          style={{
+                            color: '#94a3b8',
+                            fontSize: '0.6rem',
+                            textTransform: 'uppercase',
+                            letterSpacing: '0.08em',
+                          }}
+                        >
+                          P/L %
+                        </div>
+                        <div className={clsx('delta', gainClass)} style={{ fontWeight: 600, fontSize: '0.95rem', marginTop: '0.25rem' }}>
+                          {gainPercentage >= 0 ? '+' : ''}
+                          {gainPercentage.toFixed(2)}%
+                        </div>
+                      </div>
                   </div>
-                  <div>
+                  <div style={{ textAlign: 'right' }}>
                     <div
                       style={{
                         color: '#94a3b8',
-                        fontSize: '0.6rem',
+                        fontSize: '0.45rem',
                         textTransform: 'uppercase',
                         letterSpacing: '0.08em',
                       }}
                     >
-                      P/L %
+                      Frais cumulés
                     </div>
-                    <div className={clsx('delta', gainClass)} style={{ fontWeight: 600, fontSize: '0.95rem', marginTop: '0.25rem' }}>
-                      {gainPercentage >= 0 ? '+' : ''}
-                      {gainPercentage.toFixed(2)}%
+                    <div
+                      style={{
+                        color: '#ff0000',
+                        fontWeight: 600,
+                        fontSize: '0.7rem',
+                        marginTop: '0.25rem',
+                      }}
+                    >
+                      {feesValue > 0 ? `-${formatCurrency(feesValue)}` : formatCurrency(feesValue)}
                     </div>
                   </div>
                 </div>

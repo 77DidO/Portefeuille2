@@ -23,6 +23,7 @@ const computeGlobalMetrics = (portfolios: PortfolioSummary[]) => {
   const gainLoss = portfolios.reduce((acc, p) => acc + p.gainLossValue, 0);
   const gainLossPercentage = investedValue !== 0 ? (gainLoss / investedValue) * 100 : 0;
   const dividendsTotal = portfolios.reduce((acc, p) => acc + (p.dividendsValue ?? 0), 0);
+  const feesTotal = portfolios.reduce((acc, p) => acc + (p.feesValue ?? 0), 0);
   const cashTotal = portfolios
     .flatMap((portfolio) => portfolio.assets)
     .filter((asset) => {
@@ -30,7 +31,7 @@ const computeGlobalMetrics = (portfolios: PortfolioSummary[]) => {
       return symbol === 'PEA_CASH' || symbol === '_PEA_CASH' || symbol === 'CASH';
     })
     .reduce((acc, asset) => acc + asset.marketValue, 0);
-  return { totalValue, investedValue, gainLoss, gainLossPercentage, cashTotal, dividendsTotal };
+  return { totalValue, investedValue, gainLoss, gainLossPercentage, cashTotal, dividendsTotal, feesTotal };
 };
 
 const categoryLabel: Record<PortfolioSummary['category'], string> = {
@@ -65,7 +66,15 @@ export const DashboardCards = ({
   const visiblePortfolios = portfolios.filter(
     (portfolio) => portfolio.category !== 'GLOBAL' && portfolio.assets.length > 0,
   );
-  const { totalValue, investedValue, gainLoss, gainLossPercentage, cashTotal: cashFromAssets, dividendsTotal } =
+  const {
+    totalValue,
+    investedValue,
+    gainLoss,
+    gainLossPercentage,
+    cashTotal: cashFromAssets,
+    dividendsTotal,
+    feesTotal,
+  } =
     computeGlobalMetrics(visiblePortfolios);
   const cashFromSummary = visiblePortfolios.reduce(
     (acc, portfolio) => acc + (portfolio.cashValue ?? 0),
@@ -163,6 +172,20 @@ export const DashboardCards = ({
             strokeLinejoin="round"
           />
           <path d="M7 13h6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+        </svg>
+      ),
+    },
+    {
+      key: 'fees',
+      label: 'Frais cumulés',
+      value: feesTotal > 0 ? `-${formatCurrency(feesTotal)}` : formatCurrency(feesTotal),
+      accent: 'rgba(248, 113, 113, 0.18)',
+      valueClass: feesTotal > 0 ? 'delta negative' : undefined,
+      icon: (
+        <svg width="18" height="18" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <rect x="4.25" y="4.25" width="11.5" height="11.5" rx="1.75" stroke="currentColor" strokeWidth="1.5" />
+          <path d="M6.5 9h7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+          <path d="M6.5 12h4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
         </svg>
       ),
     },
@@ -556,6 +579,7 @@ export const DashboardCards = ({
               portfolio.gainLossValue === 0 ? '' : portfolio.gainLossValue > 0 ? 'positive' : 'negative';
             const gainPercentage =
               portfolio.investedValue !== 0 ? (portfolio.gainLossValue / portfolio.investedValue) * 100 : 0;
+            const feesValue = portfolio.feesValue ?? 0;
             const isSelected = selectedPortfolioId === portfolio.id;
             const trackedAssetCount = portfolio.assets.filter((asset) => {
               const symbol = asset.symbol?.toUpperCase?.() ?? '';
@@ -655,44 +679,45 @@ export const DashboardCards = ({
                 <div
                   style={{
                     padding: '0.75rem 0.95rem 0.9rem',
-                    display: 'grid',
-                    gap: '0.85rem 1rem',
-                    gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
-                    alignItems: 'start',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '0.65rem',
                     flex: '1 1 auto',
                   }}
                 >
-                  <div>
-                    <div
-                      style={{
-                        color: '#94a3b8',
-                        fontSize: '0.65rem',
-                        textTransform: 'uppercase',
-                        letterSpacing: '0.08em',
-                      }}
-                    >
-                      Valeur totale
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                    <div>
+                      <div
+                        style={{
+                          color: '#94a3b8',
+                          fontSize: '0.65rem',
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.08em',
+                        }}
+                      >
+                        Investi
+                      </div>
+                      <div style={{ color: '#cbd5f5', fontWeight: 600, fontSize: '1rem', marginTop: '0.35rem' }}>
+                        {formatCurrency(portfolio.investedValue)}
+                      </div>
                     </div>
-                    <div style={{ color: '#f8fafc', fontWeight: 700, fontSize: '1.1rem', marginTop: '0.35rem' }}>
-                      {formatCurrency(portfolio.totalValue)}
+                    <div style={{ textAlign: 'right' }}>
+                      <div
+                        style={{
+                          color: '#94a3b8',
+                          fontSize: '0.65rem',
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.08em',
+                        }}
+                      >
+                        Valeur totale
+                      </div>
+                      <div style={{ color: '#f8fafc', fontWeight: 700, fontSize: '1.1rem', marginTop: '0.35rem' }}>
+                        {formatCurrency(portfolio.totalValue)}
+                      </div>
                     </div>
                   </div>
-                  <div>
-                    <div
-                      style={{
-                        color: '#94a3b8',
-                        fontSize: '0.65rem',
-                        textTransform: 'uppercase',
-                        letterSpacing: '0.08em',
-                      }}
-                    >
-                      Investi
-                    </div>
-                    <div style={{ color: '#cbd5f5', fontWeight: 600, fontSize: '1rem', marginTop: '0.35rem' }}>
-                      {formatCurrency(portfolio.investedValue)}
-                    </div>
-                  </div>
-                  <div style={{ gridColumn: 'span 2', display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
                     <div>
                       <div
                         style={{
@@ -709,7 +734,7 @@ export const DashboardCards = ({
                       </div>
                     </div>
                     {portfolio.dividendsValue !== undefined && portfolio.dividendsValue > 0 && (
-                      <div>
+                      <div style={{ textAlign: 'right' }}>
                         <div
                           style={{
                             color: '#94a3b8',
@@ -725,41 +750,65 @@ export const DashboardCards = ({
                         </div>
                       </div>
                     )}
-                    <div style={{ display: 'flex', gap: '1.1rem', flexWrap: 'wrap' }}>
-                      <div>
-                        <div
-                          style={{
-                            color: '#94a3b8',
-                            fontSize: '0.6rem',
-                            textTransform: 'uppercase',
-                            letterSpacing: '0.08em',
-                          }}
-                        >
-                          P/L
+                  </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                      <div style={{ display: 'flex', gap: '1.1rem' }}>
+                        <div>
+                          <div
+                            style={{
+                              color: '#94a3b8',
+                              fontSize: '0.6rem',
+                              textTransform: 'uppercase',
+                              letterSpacing: '0.08em',
+                            }}
+                          >
+                            P/L
+                          </div>
+                          <div className={clsx('delta', gainClass)} style={{ fontWeight: 600, fontSize: '0.95rem', marginTop: '0.25rem' }}>
+                            {portfolio.gainLossValue >= 0 ? '+' : ''}
+                            {formatCurrency(portfolio.gainLossValue)}
+                          </div>
                         </div>
-                        <div className={clsx('delta', gainClass)} style={{ fontWeight: 600, fontSize: '0.95rem', marginTop: '0.25rem' }}>
-                          {portfolio.gainLossValue >= 0 ? '+' : ''}
-                          {formatCurrency(portfolio.gainLossValue)}
+                        <div>
+                          <div
+                            style={{
+                              color: '#94a3b8',
+                              fontSize: '0.6rem',
+                              textTransform: 'uppercase',
+                              letterSpacing: '0.08em',
+                            }}
+                          >
+                            P/L %
+                          </div>
+                          <div className={clsx('delta', gainClass)} style={{ fontWeight: 600, fontSize: '0.95rem', marginTop: '0.25rem' }}>
+                            {gainPercentage >= 0 ? '+' : ''}
+                            {gainPercentage.toFixed(2)}%
+                          </div>
                         </div>
                       </div>
-                      <div>
+                      <div style={{ textAlign: 'right' }}>
                         <div
                           style={{
                             color: '#94a3b8',
-                            fontSize: '0.6rem',
+                            fontSize: '0.45rem',
                             textTransform: 'uppercase',
                             letterSpacing: '0.08em',
                           }}
                         >
-                          P/L %
+                          Frais cumulés
                         </div>
-                        <div className={clsx('delta', gainClass)} style={{ fontWeight: 600, fontSize: '0.95rem', marginTop: '0.25rem' }}>
-                          {gainPercentage >= 0 ? '+' : ''}
-                          {gainPercentage.toFixed(2)}%
+                        <div
+                          style={{
+                            color: '#94a3b8',
+                            fontWeight: 600,
+                            fontSize: '0.7rem',
+                            marginTop: '0.25rem',
+                          }}
+                        >
+                          {(portfolio.feesValue ?? 0) > 0 ? `-${formatCurrency(portfolio.feesValue ?? 0)}` : formatCurrency(portfolio.feesValue ?? 0)}
                         </div>
                       </div>
                     </div>
-                  </div>
                 </div>
               </div>
             );

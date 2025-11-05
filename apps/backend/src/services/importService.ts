@@ -15,6 +15,7 @@ interface ParsedRow {
   source: string;
   fee?: number | null;
   isSnapshot?: boolean;
+  originalSymbol?: string | null;
 }
 
 const normaliseNumber = (value: string | number | null | undefined): number => {
@@ -127,25 +128,84 @@ type CsvParser = (records: CsvRecord[]) => Promise<ParsedRow[]> | ParsedRow[];
 
 const PEA_CASH_SYMBOL = '_PEA_CASH';
 const PEA_CASH_NAME = 'PEA - Liquidites';
+const CREDIT_AGRICOLE_CASH_SYMBOLS = new Set(['000007859050']);
+const CREDIT_AGRICOLE_CASH_KEYWORDS = ['cl brie', 'compte espece', 'pea liquidite', 'tresorerie pea'];
+const CREDIT_AGRICOLE_LEGACY_SYMBOLS = Array.from(CREDIT_AGRICOLE_CASH_SYMBOLS);
+
+const ensureCreditAgricoleCashAsset = async (portfolioId: number) => {
+  let asset = await prisma.asset.findFirst({
+    where: {
+      portfolioId,
+      symbol: PEA_CASH_SYMBOL,
+    },
+  });
+
+  if (!asset) {
+    asset = await prisma.asset.create({
+      data: {
+        portfolioId,
+        symbol: PEA_CASH_SYMBOL,
+        name: PEA_CASH_NAME,
+        assetType: 'OTHER',
+      },
+    });
+  }
+
+  return asset;
+};
+
+const mergeCreditAgricoleLegacyCashAssets = async (portfolioId: number) => {
+  const legacyAssets = await prisma.asset.findMany({
+    where: {
+      portfolioId,
+      symbol: { in: CREDIT_AGRICOLE_LEGACY_SYMBOLS },
+    },
+  });
+
+  if (legacyAssets.length === 0) {
+    return;
+  }
+
+  const targetAsset = await ensureCreditAgricoleCashAsset(portfolioId);
+
+  for (const legacy of legacyAssets) {
+    if (legacy.id === targetAsset.id) {
+      continue;
+    }
+
+    await prisma.transaction.updateMany({
+      where: { assetId: legacy.id },
+      data: { assetId: targetAsset.id },
+    });
+
+    await prisma.pricePoint.deleteMany({
+      where: { assetId: legacy.id },
+    });
+
+    await prisma.asset.delete({
+      where: { id: legacy.id },
+    });
+  }
+};
 
 const parseCreditAgricole = (records: CsvRecord[]): ParsedRow[] => {
   const transactions: ParsedRow[] = [];
 
   records.forEach((record) => {
     const row = normaliseHeaders(record);
-    const symbol =
+    const rawSymbol =
       row['isin'] ||
       row['code'] ||
       row['ticker'] ||
       row['libelle'] ||
       row['nom'] ||
       row['reference'];
-    const name =
+    const rawName =
       row['libelle'] ||
       row['nom'] ||
       row['valeur'] ||
       row['designation'] ||
-      symbol ||
+      rawSymbol ||
       'Valeur Credit Agricole';
     const quantity = normaliseNumber(row['quantite'] || row['qte'] || row['quantitenegociable']);
     const price = normaliseNumber(
@@ -183,6 +243,16 @@ const parseCreditAgricole = (records: CsvRecord[]): ParsedRow[] => {
 
     const date = dateRaw ? normaliseDate(dateRaw) : new Date();
 
+    const symbolNormalised = normaliseText(rawSymbol ?? '');
+    const nameNormalised = normaliseText(rawName ?? '');
+    const isCashPlaceholder =
+      (symbolNormalised && CREDIT_AGRICOLE_CASH_SYMBOLS.has(symbolNormalised)) ||
+      CREDIT_AGRICOLE_CASH_KEYWORDS.some((keyword) => nameNormalised.includes(keyword));
+
+    const symbol = isCashPlaceholder ? PEA_CASH_SYMBOL : rawSymbol;
+    const name = isCashPlaceholder ? PEA_CASH_NAME : rawName;
+    const originalSymbol = isCashPlaceholder ? rawSymbol ?? null : null;
+
     const isSnapshotRow =
       !dateRaw &&
       quantity !== 0 &&
@@ -210,9 +280,10 @@ const parseCreditAgricole = (records: CsvRecord[]): ParsedRow[] => {
       operation.includes('coupon') ||
       operation.includes('dividende') ||
       operation.includes('interet') ||
-      operation.includes('intérêt');
+      operation.includes('intérêt') ||
+      operation.includes('taxe');
 
-    const hasAsset = quantity !== 0 && Boolean(symbol) && !isCashOnlyOperation;
+    const hasAsset = quantity !== 0 && Boolean(symbol) && !isCashOnlyOperation && !isCashPlaceholder;
     const effectivePrice =
       price === 0 && quantity !== 0 && amountNet !== 0
         ? (() => {
@@ -223,6 +294,22 @@ const parseCreditAgricole = (records: CsvRecord[]): ParsedRow[] => {
             return gross > 0 ? gross / Math.abs(quantity) : 0;
           })()
         : price;
+    if (isCashPlaceholder && isSnapshotRow) {
+      transactions.push({
+        symbol: PEA_CASH_SYMBOL,
+        name: PEA_CASH_NAME,
+        type: 'OTHER',
+        date,
+        price: 1,
+        quantity,
+        transactionType,
+        source: rowSource,
+        isSnapshot: true,
+        originalSymbol,
+      });
+      return;
+    }
+
     if (hasAsset && effectivePrice > 0) {
       transactions.push({
         symbol: symbol ?? name ?? 'INCONNU',
@@ -235,6 +322,7 @@ const parseCreditAgricole = (records: CsvRecord[]): ParsedRow[] => {
         source: rowSource,
         fee,
         isSnapshot: isSnapshotRow || undefined,
+        originalSymbol,
       });
     }
 
@@ -242,18 +330,38 @@ const parseCreditAgricole = (records: CsvRecord[]): ParsedRow[] => {
       amountNet !== 0 ||
       operation.includes('versement') ||
       operation.includes('remboursement') ||
-      operation.includes('retrait');
+      operation.includes('retrait') ||
+      isCashPlaceholder;
 
     if (!cashImpact) {
       return;
     }
 
     if (amountNet === 0) {
+      if (!isCashPlaceholder) {
+        return;
+      }
+      const inferredQuantity = Math.abs(quantity);
+      if (inferredQuantity === 0) {
+        return;
+      }
+      transactions.push({
+        symbol: PEA_CASH_SYMBOL,
+        name: PEA_CASH_NAME,
+        type: 'OTHER',
+        date,
+        price: 1,
+        quantity: inferredQuantity,
+        transactionType: quantity >= 0 ? 'BUY' : 'SELL',
+        source: rowSource,
+        isSnapshot: true,
+        originalSymbol,
+      });
       return;
     }
 
     const transactionTypeForCash = amountNet > 0 ? 'BUY' : 'SELL';
-    
+
     // Determine the source type for cash transactions
     let cashSource = 'credit-agricole';
     if (operation.includes('coupon') || operation.includes('dividende')) {
@@ -271,6 +379,7 @@ const parseCreditAgricole = (records: CsvRecord[]): ParsedRow[] => {
       quantity: Math.abs(amountNet),
       transactionType: transactionTypeForCash,
       source: cashSource,
+      originalSymbol,
     });
   });
 
@@ -654,6 +763,10 @@ export const importCsv = async (portfolioId: number, source: keyof typeof parser
   const parser = parserBySource[source];
   if (!parser) {
     throw new Error(`Source CSV inconnue: ${source}`);
+  }
+
+  if (source === 'credit-agricole') {
+    await mergeCreditAgricoleLegacyCashAssets(portfolioId);
   }
   const sanitizedCsv = stripPrelude(csv);
   const records = parse(sanitizedCsv, {

@@ -221,20 +221,28 @@ const fetchYahooJson = async (
   params: Record<string, string | undefined>,
   retry = false,
 ): Promise<unknown> => {
-  const session = await ensureYahooSession(retry);
   const url = new URL(path);
   Object.entries(params).forEach(([key, value]) => {
     if (value !== undefined) {
       url.searchParams.set(key, value);
     }
   });
-  if (session?.crumb) {
-    url.searchParams.set('crumb', session.crumb);
-  }
+
+  const applySessionToUrl = (session: YahooSession | null) => {
+    if (session?.crumb) {
+      url.searchParams.set('crumb', session.crumb);
+    } else {
+      url.searchParams.delete('crumb');
+    }
+  };
+
+  const session = await ensureYahooSession(retry);
+  applySessionToUrl(session);
 
   const request = async (forceRenew: boolean) => {
     if (forceRenew) {
-      await ensureYahooSession(true);
+      const renewedSession = await ensureYahooSession(true);
+      applySessionToUrl(renewedSession);
     }
     const activeSession = yahooSession;
     try {

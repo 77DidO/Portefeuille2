@@ -16,6 +16,56 @@ interface AssetWithRelations extends Asset {
   pricePoints: PricePoint[];
 }
 
+const calculatePosition = (transactions: Transaction[]) => {
+  let quantity = 0;
+  let cost = 0;
+
+  const sorted = [...transactions].sort(
+    (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
+  );
+
+  sorted.forEach((tx) => {
+    const qty = toNumber(tx.quantity);
+    const price = toNumber(tx.price);
+    const fee = toNumber(tx.fee ?? 0);
+
+    if (tx.type === 'BUY') {
+      quantity += qty;
+      cost += price * qty + fee;
+      return;
+    }
+
+    if (qty <= 0) {
+      return;
+    }
+
+    const sellQty = Math.min(qty, Math.max(quantity, 0));
+    if (sellQty <= 0) {
+      return;
+    }
+
+    const averageCost = quantity > 0 ? cost / quantity : 0;
+    const costReduction = averageCost * sellQty;
+
+    quantity -= sellQty;
+    cost -= costReduction;
+
+    if (quantity <= 1e-8) {
+      quantity = 0;
+    }
+
+    if (Math.abs(cost) <= 1e-6) {
+      cost = 0;
+    }
+
+    if (cost < 0) {
+      cost = 0;
+    }
+  });
+
+  return { quantity, cost };
+};
+
 /**
  * Calcule le capital total investi basé sur les versements de cash
  */
@@ -52,6 +102,24 @@ const computeTotalDividends = (portfolio: Portfolio & { assets: AssetWithRelatio
   });
   
   return totalDividends;
+};
+
+/**
+ * Calcule le total des frais payés (achats/ventes)
+ */
+const computeTotalFees = (portfolio: Portfolio & { assets: AssetWithRelations[] }): number => {
+  let totalFees = 0;
+
+  portfolio.assets.forEach((asset) => {
+    asset.transactions.forEach((tx) => {
+      const fee = toNumber(tx.fee ?? 0);
+      if (fee > 0) {
+        totalFees += fee;
+      }
+    });
+  });
+
+  return totalFees;
 };
 
 /**
@@ -133,18 +201,18 @@ const computeAssetSummary = (asset: AssetWithRelations): AssetSummary => {
   const latestPrice = sortedPrices.at(-1);
   const latestPriceValue = latestPrice ? toNumber(latestPrice.price) : null;
 
+  const isCashAsset = isCashSymbol(asset.symbol);
+
   const netQuantity = asset.transactions.reduce((acc, tx) => {
     const qty = toNumber(tx.quantity);
     return tx.type === 'BUY' ? acc + qty : acc - qty;
   }, 0);
-  const invested = asset.transactions.reduce((acc, tx) => {
-    const qty = toNumber(tx.quantity);
-    const price = toNumber(tx.price);
-    const fee = toNumber(tx.fee ?? 0);
-    const delta = new Decimal(price).mul(qty).plus(fee).toNumber();
-    return tx.type === 'BUY' ? acc + delta : acc - delta;
-  }, 0);
-  const marketValue = latestPrice ? toNumber(latestPrice.price) * netQuantity : 0;
+
+  const position = isCashAsset ? null : calculatePosition(asset.transactions);
+  const effectiveQuantity = isCashAsset ? netQuantity : position?.quantity ?? 0;
+  const invested = isCashAsset ? 0 : position?.cost ?? 0;
+
+  const marketValue = latestPriceValue !== null ? latestPriceValue * effectiveQuantity : 0;
   const gainLoss = marketValue - invested;
   const gainLossPercentage = invested !== 0 ? (gainLoss / invested) * 100 : 0;
 
@@ -153,8 +221,7 @@ const computeAssetSummary = (asset: AssetWithRelations): AssetSummary => {
     value: toNumber(pp.price),
   }));
 
-  const isCashAsset = isCashSymbol(asset.symbol);
-  const adjustedQuantity = isCashAsset ? Math.max(netQuantity, 0) : netQuantity;
+  const adjustedQuantity = isCashAsset ? Math.max(netQuantity, 0) : effectiveQuantity;
   const cashUnitPrice = latestPriceValue ?? 1;
   const adjustedMarketValue =
     isCashAsset ? Math.max(cashUnitPrice * adjustedQuantity, 0) : marketValue;
@@ -193,6 +260,7 @@ const computePortfolioTotals = (portfolio: Portfolio & { assets: AssetWithRelati
   
   // Calculer le total des dividendes
   const totalDividends = computeTotalDividends(portfolio);
+  const totalFees = computeTotalFees(portfolio);
   
   // Calculer le capital réellement investi dans les actifs (hors cash)
   const investedInAssets = nonCashAssets.reduce((acc, asset) => acc + asset.investedValue, 0);
@@ -216,6 +284,7 @@ const computePortfolioTotals = (portfolio: Portfolio & { assets: AssetWithRelati
     gainLossPercentage: roundCurrency(gainLossPercentage, 2),
     cashValue: roundCurrency(cashValue),
     dividendsValue: roundCurrency(totalDividends),
+    feesValue: roundCurrency(totalFees),
     assets: assetSummaries,
   };
 };
@@ -379,24 +448,9 @@ export const getPortfolioDetail = async (id: number): Promise<PortfolioDetail | 
       
       if (pricePoints.length === 0) return; // Pas encore de prix pour cet actif
       
-      // Calculer la quantité et le coût au jour J
-      let quantity = 0;
-      let cost = 0;
-      
-      transactions.forEach(tx => {
-        const qty = toNumber(tx.quantity);
-        const price = toNumber(tx.price);
-        const fee = toNumber(tx.fee ?? 0);
-        const delta = new Decimal(price).mul(qty).plus(fee).toNumber();
-        
-        if (tx.type === 'BUY') {
-          quantity += qty;
-          cost += delta;
-        } else {
-          quantity -= qty;
-          cost -= delta;
-        }
-      });
+      const position = calculatePosition(transactions);
+      const quantity = position.quantity;
+      const cost = position.cost;
       
       if (quantity <= 0) return; // Plus d'actif de ce type
       

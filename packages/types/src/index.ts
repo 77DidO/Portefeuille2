@@ -15,6 +15,7 @@ export interface PortfolioSummary {
   gainLossPercentage: number;
   cashValue?: number;
   dividendsValue?: number;
+  feesValue?: number;
   assets: AssetSummary[];
 }
 
